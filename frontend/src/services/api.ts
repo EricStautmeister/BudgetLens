@@ -187,6 +187,10 @@ class ApiClient {
 			category_id: categoryId,
 		});
 	}
+
+	async getCSVMappings() {
+		return this.client.get('/uploads/mappings');
+	}
 }
 
 export const apiClient = new ApiClient();
