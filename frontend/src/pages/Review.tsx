@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
 	Box,
@@ -25,7 +25,7 @@ import {
 	Checkbox,
 	LinearProgress,
 } from '@mui/material';
-import { Check, Close, Category as CategoryIcon, Store } from '@mui/icons-material';
+import { Category as Store } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';

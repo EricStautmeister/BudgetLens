@@ -10,6 +10,7 @@ from app.services.csv_processor import CSVProcessor
 from app.core.config import settings
 from uuid import UUID
 import tempfile
+from typing import List, Dict, Optional
 
 router = APIRouter()
 

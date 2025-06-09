@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+RUN npm i --package-lock-only
 RUN npm ci
 
 # Copy source code

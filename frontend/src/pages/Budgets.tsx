@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
 	Box,
@@ -19,7 +19,7 @@ import {
 	Chip,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { format, startOfMonth } from 'date-fns';
+import { startOfMonth } from 'date-fns';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
 
@@ -29,7 +29,7 @@ export default function Budgets() {
 	const [selectedPeriod, setSelectedPeriod] = useState(startOfMonth(new Date()));
 	const [budgetAmounts, setBudgetAmounts] = useState<Record<string, string>>({});
 
-	const { data: budget, isLoading } = useQuery({
+	const { data: budget } = useQuery({
 		queryKey: ['currentBudget'],
 		queryFn: async () => {
 			const response = await apiClient.getCurrentBudget();

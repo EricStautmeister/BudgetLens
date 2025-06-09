@@ -12,4 +12,10 @@ export default defineConfig({
 			},
 		},
 	},
+	resolve: {
+		dedupe: ['date-fns'],
+	},
+	optimizeDeps: {
+		include: ['date-fns'],
+	},
 });

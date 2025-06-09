@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
 	Box,
@@ -36,7 +36,7 @@ export default function Categories() {
 		is_savings: false,
 	});
 
-	const { data: categories, isLoading } = useQuery({
+	const { data: categories } = useQuery({
 		queryKey: ['categories'],
 		queryFn: async () => {
 			const response = await apiClient.getCategories();

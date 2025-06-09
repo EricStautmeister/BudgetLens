@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Decimal, Boolean, Float, Text, Date, DateTime, ForeignKey, JSON, ARRAY, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Numeric, Boolean, Float, Text, Date, DateTime, ForeignKey, JSON, ARRAY, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -29,7 +29,7 @@ class Transaction(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     date = Column(Date, nullable=False, index=True)
-    amount = Column(Decimal(12, 2), nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
     description = Column(Text, nullable=False)
     source_account = Column(String(100))
     vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"))
@@ -85,9 +85,9 @@ class BudgetPeriod(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     period = Column(Date, nullable=False)  # First day of month
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=False)
-    budgeted_amount = Column(Decimal(10, 2), nullable=False)
-    actual_amount = Column(Decimal(10, 2), default=0)
-    rollover_amount = Column(Decimal(10, 2), default=0)
+    budgeted_amount = Column(Numeric(10, 2), nullable=False)
+    actual_amount = Column(Numeric(10, 2), default=0)
+    rollover_amount = Column(Numeric(10, 2), default=0)
     
     # Relationships
     user = relationship("User", back_populates="budget_periods")
