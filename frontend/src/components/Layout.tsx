@@ -24,6 +24,9 @@ import {
 	CloudUpload,
 	RateReview,
 	Logout,
+	Storage,
+	Psychology,
+	BugReport,
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
@@ -34,7 +37,10 @@ const menuItems = [
 	{ text: 'Categories', icon: <Category />, path: '/categories' },
 	{ text: 'Budgets', icon: <AccountBalance />, path: '/budgets' },
 	{ text: 'Upload CSV', icon: <CloudUpload />, path: '/upload' },
+	{ text: 'Manage Uploads', icon: <Storage />, path: '/upload-management' },
 	{ text: 'Review Queue', icon: <RateReview />, path: '/review' },
+	{ text: 'Learned Patterns', icon: <Psychology />, path: '/patterns' },
+	{ text: 'Pattern Test', icon: <BugReport />, path: '/pattern-test' },
 ];
 
 export default function Layout() {
@@ -56,7 +62,7 @@ export default function Layout() {
 		<div>
 			<Toolbar>
 				<Typography variant="h6" noWrap component="div">
-					PennyPilot
+					BudgetLens
 				</Typography>
 			</Toolbar>
 			<Divider />

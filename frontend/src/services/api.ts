@@ -1,6 +1,29 @@
 import axios, { AxiosInstance } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// Auto-detect the API URL based on environment
+const getApiBaseUrl = (): string => {
+	// Environment variable takes precedence
+	if (import.meta.env.VITE_API_URL) {
+		return import.meta.env.VITE_API_URL;
+	}
+
+	// Auto-detect based on current hostname
+	const hostname = window.location.hostname;
+	const protocol = window.location.protocol;
+
+	// If accessing via localhost, use localhost for API
+	if (hostname === 'localhost' || hostname === '127.0.0.1') {
+		return 'http://localhost:8000/api/v1';
+	}
+
+	// For multi-device setup, construct API URL using current hostname
+	// This assumes your backend is running on port 8000 on the same machine as the frontend proxy
+	return `${protocol}//${hostname}:8000/api/v1`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+console.log('API Base URL:', API_BASE_URL); // Debug log
 
 class ApiClient {
 	private client: AxiosInstance;
@@ -12,6 +35,7 @@ class ApiClient {
 			headers: {
 				'Content-Type': 'application/json',
 			},
+			timeout: 10000, // 10 second timeout
 		});
 
 		// Request interceptor to add auth token
@@ -63,11 +87,16 @@ class ApiClient {
 		try {
 			const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
 				refresh_token: refreshToken,
+			}, {
+				headers: {
+					'Content-Type': 'application/json'
+				}
 			});
 
 			localStorage.setItem('access_token', response.data.access_token);
 			localStorage.setItem('refresh_token', response.data.refresh_token);
 		} catch (error) {
+			console.error('Token refresh failed:', error);
 			this.logout();
 			throw error;
 		}
@@ -77,6 +106,22 @@ class ApiClient {
 		localStorage.removeItem('access_token');
 		localStorage.removeItem('refresh_token');
 		window.location.href = '/login';
+	}
+
+	// Helper function to clean query parameters
+	private cleanParams(params: any): any {
+		if (!params) return {};
+
+		const cleaned = { ...params };
+
+		// Remove empty strings and null/undefined values
+		Object.keys(cleaned).forEach(key => {
+			if (cleaned[key] === '' || cleaned[key] == null) {
+				delete cleaned[key];
+			}
+		});
+
+		return cleaned;
 	}
 
 	// Auth endpoints
@@ -101,32 +146,52 @@ class ApiClient {
 
 	// Transaction endpoints
 	async getTransactions(params?: any) {
-		return this.client.get('/transactions', { params });
+		const cleanedParams = this.cleanParams(params);
+		return this.client.get('/transactions/', { params: cleanedParams });
 	}
 
 	async getReviewQueue() {
 		return this.client.get('/transactions/review');
 	}
 
-	async categorizeTransaction(id: string, data: any) {
-		return this.client.put(`/transactions/${id}/categorize`, data);
+	async categorizeTransaction(id: string, data: any, learnPatterns: boolean = true) {
+		return this.client.put(`/transactions/${id}/categorize?learn_patterns=${learnPatterns}`, data);
+	}
+
+	async getVendorSuggestions(transactionId: string) {
+		return this.client.get(`/transactions/${transactionId}/vendor-suggestions`);
+	}
+
+	async getLearnedPatterns() {
+		return this.client.get(`/transactions/patterns`);
+	}
+
+	async debugVendorExtraction(description: string) {
+		return this.client.get(`/transactions/debug-vendor-extraction`, {
+			params: { description }
+		});
 	}
 
 	async bulkCategorize(transactionIds: string[], categoryId: string, vendorId?: string) {
-		return this.client.post('/transactions/bulk-categorize', {
+		const payload: any = {
 			transaction_ids: transactionIds,
 			category_id: categoryId,
-			vendor_id: vendorId,
-		});
+		};
+
+		if (vendorId) {
+			payload.vendor_id = vendorId;
+		}
+
+		return this.client.post('/transactions/bulk-categorize', payload);
 	}
 
 	// Category endpoints
 	async getCategories() {
-		return this.client.get('/categories');
+		return this.client.get('/categories/');
 	}
 
 	async createCategory(data: any) {
-		return this.client.post('/categories', data);
+		return this.client.post('/categories/', data);
 	}
 
 	async updateCategory(id: string, data: any) {
@@ -173,11 +238,11 @@ class ApiClient {
 
 	// Vendor endpoints
 	async getVendors() {
-		return this.client.get('/vendors');
+		return this.client.get('/vendors/');
 	}
 
 	async createVendor(data: any) {
-		return this.client.post('/vendors', data);
+		return this.client.post('/vendors/', data);
 	}
 
 	async learnVendor(transactionId: string, vendorName: string, categoryId: string) {
@@ -190,6 +255,29 @@ class ApiClient {
 
 	async getCSVMappings() {
 		return this.client.get('/uploads/mappings');
+	}
+
+	// Upload Management endpoints
+	async getUploads(skip = 0, limit = 50) {
+		return this.client.get('/upload-management/', {
+			params: { skip, limit }
+		});
+	}
+
+	async deleteUpload(uploadId: string) {
+		return this.client.delete(`/upload-management/${uploadId}`);
+	}
+
+	async getUploadTransactions(uploadId: string) {
+		return this.client.get(`/upload-management/${uploadId}/transactions`);
+	}
+
+	async retryFailedUpload(uploadId: string) {
+		return this.client.post(`/upload-management/${uploadId}/retry`);
+	}
+
+	async getUploadStats() {
+		return this.client.get('/upload-management/stats');
 	}
 }
 

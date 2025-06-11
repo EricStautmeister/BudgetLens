@@ -9,3 +9,7 @@ api_router.include_router(categories.router, prefix="/categories", tags=["catego
 api_router.include_router(vendors.router, prefix="/vendors", tags=["vendors"])
 api_router.include_router(budgets.router, prefix="/budgets", tags=["budgets"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
+
+# Add upload management endpoints to the uploads router
+from app.api.v1.endpoints.upload_management import router as upload_mgmt_router
+api_router.include_router(upload_mgmt_router, prefix="/upload-management", tags=["upload-management"])

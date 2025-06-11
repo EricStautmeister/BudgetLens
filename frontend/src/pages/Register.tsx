@@ -47,7 +47,7 @@ export default function Register() {
 				}}>
 				<Paper elevation={3} sx={{ p: 4, width: '100%' }}>
 					<Typography component="h1" variant="h5" align="center">
-						Create PennyPilot Account
+						Create BudgetLens Account
 					</Typography>
 
 					{error && (

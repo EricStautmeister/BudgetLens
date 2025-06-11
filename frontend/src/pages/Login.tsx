@@ -44,7 +44,7 @@ export default function Login() {
 				}}>
 				<Paper elevation={3} sx={{ p: 4, width: '100%' }}>
 					<Typography component="h1" variant="h5" align="center">
-						Sign In to PennyPilot
+						Sign In to BudgetLens
 					</Typography>
 
 					{error && (

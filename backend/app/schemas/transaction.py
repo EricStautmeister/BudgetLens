@@ -19,6 +19,7 @@ class TransactionCreate(TransactionBase):
 class TransactionUpdate(BaseModel):
     vendor_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
+    vendor_name: Optional[str] = None  # For learning new vendors
     is_transfer: Optional[bool] = None
 
 class TransactionInDB(TransactionBase):
@@ -44,3 +45,16 @@ class TransactionFilter(BaseModel):
     needs_review: Optional[bool] = None
     min_amount: Optional[Decimal] = None
     max_amount: Optional[Decimal] = None
+
+class VendorSuggestion(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    category_id: str
+    similarity: float
+    normalized_pattern: str
+
+class CategorizationResult(BaseModel):
+    message: str
+    similar_transactions_categorized: int
+    vendor_created: str
+    pattern_learned: str

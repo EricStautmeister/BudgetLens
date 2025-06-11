@@ -2,6 +2,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.core.config import settings
 from app.core.security import verify_password, create_access_token, create_refresh_token
 from app.db.base import get_db
@@ -10,6 +11,9 @@ from app.schemas.user import User as UserSchema, UserCreate, Token
 from app.services.user import UserService
 
 router = APIRouter()
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 @router.post("/register", response_model=UserSchema)
 async def register(
@@ -53,12 +57,12 @@ async def login(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    refresh_token: str,
+    token_request: RefreshTokenRequest,
     db: Session = Depends(get_db)
 ):
     from app.core.security import decode_token
     
-    payload = decode_token(refresh_token)
+    payload = decode_token(token_request.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

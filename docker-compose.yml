@@ -8,24 +8,34 @@ services:
       DATABASE_URL: postgresql://user:pass@db:5432/budgetapp
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET: ${JWT_SECRET}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
       ENVIRONMENT: development
     volumes:
       - ./backend:/app
     depends_on:
       - db
       - redis
+    networks:
+      - budget_network
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     build:
       context: ./frontend
+      args:
+        - VITE_API_URL=http://192.168.10.133:8000/api/v1
     ports:
       - "3000:3000"
+    environment:
+      - VITE_API_URL=http://192.168.10.133:8000/api/v1
     volumes:
       - ./frontend:/app
     depends_on:
       - backend
+    networks:
+      - budget_network
 
   db:
     image: postgres:15
@@ -37,11 +47,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - budget_network
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    networks:
+      - budget_network
 
   celery_worker:
     build:
@@ -58,7 +72,14 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET: ${JWT_SECRET}
       CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
       ENVIRONMENT: development
+    networks:
+      - budget_network
 
 volumes:
   postgres_data:
+
+networks:
+  budget_network:
+    driver: bridge

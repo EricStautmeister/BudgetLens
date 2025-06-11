@@ -17,8 +17,11 @@ import {
 	ListItemIcon,
 	ListItemText,
 	Chip,
+	Accordion,
+	AccordionSummary,
+	AccordionDetails,
 } from '@mui/material';
-import { CloudUpload, CheckCircle, Error as ErrorIcon, Description } from '@mui/icons-material';
+import { CloudUpload, CheckCircle, Error as ErrorIcon, Description, ExpandMore } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
 
@@ -169,18 +172,80 @@ export default function Upload() {
 						</Alert>
 					)}
 
-					{uploadStatus.error_count > 0 && (
+					{/* Enhanced Error Display */}
+					{uploadStatus.error_details?.summary && (
+						<Alert severity="info" sx={{ mt: 2 }}>
+							<Typography variant="body2">
+								<strong>Processing Summary:</strong><br/>
+								• Total rows: {uploadStatus.error_details.summary.total_rows}<br/>
+								• Successfully processed: {uploadStatus.error_details.summary.processed}<br/>
+								• Skipped: {uploadStatus.error_details.summary.skipped}<br/>
+								• Errors: {uploadStatus.error_details.summary.errors}
+							</Typography>
+						</Alert>
+					)}
+
+					{/* Skipped Transactions */}
+					{uploadStatus.error_details?.skipped && uploadStatus.error_details.skipped.length > 0 && (
+						<Accordion sx={{ mt: 2 }}>
+							<AccordionSummary expandIcon={<ExpandMore />}>
+								<Typography variant="subtitle1">
+									{uploadStatus.error_details.skipped.length} Skipped Transactions - Click to see details
+								</Typography>
+							</AccordionSummary>
+							<AccordionDetails>
+								{uploadStatus.error_details.skipped.map((skip: any, index: number) => (
+									<Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+										<Typography variant="body2">
+											<strong>Row {skip.row}:</strong> {skip.reason}
+										</Typography>
+										{skip.data && (
+											<Typography variant="caption" color="textSecondary" component="div">
+												<strong>Data:</strong><br/>
+												• Date: {skip.data.date || 'N/A'}<br/>
+												• Description: {skip.data.description?.substring(0, 50) || 'N/A'}...<br/>
+												• Debit: {skip.data.debit || 'N/A'}<br/>
+												• Credit: {skip.data.credit || 'N/A'}
+											</Typography>
+										)}
+									</Box>
+								))}
+							</AccordionDetails>
+						</Accordion>
+					)}
+
+					{/* Error Details */}
+					{uploadStatus.error_details?.errors && uploadStatus.error_details.errors.length > 0 && (
+						<Accordion sx={{ mt: 2 }}>
+							<AccordionSummary expandIcon={<ExpandMore />}>
+								<Typography variant="subtitle1" color="error">
+									{uploadStatus.error_details.errors.length} Processing Errors - Click to see details
+								</Typography>
+							</AccordionSummary>
+							<AccordionDetails>
+								{uploadStatus.error_details.errors.map((error: any, index: number) => (
+									<Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
+										<Typography variant="body2" color="error">
+											<strong>Row {error.row}:</strong> {error.error}
+										</Typography>
+										{error.data && (
+											<Typography variant="caption" color="textSecondary" component="div" sx={{ mt: 1 }}>
+												<strong>Raw Data:</strong><br/>
+												<pre style={{ fontSize: '11px', margin: 0 }}>
+													{JSON.stringify(error.data, null, 2)}
+												</pre>
+											</Typography>
+										)}
+									</Box>
+								))}
+							</AccordionDetails>
+						</Accordion>
+					)}
+
+					{/* Legacy error handling for backward compatibility */}
+					{uploadStatus.error_count > 0 && !uploadStatus.error_details && (
 						<Alert severity="warning" sx={{ mt: 2 }}>
 							{uploadStatus.error_count} errors occurred during processing
-							{uploadStatus.error_details && (
-								<Box sx={{ mt: 1 }}>
-									{uploadStatus.error_details.slice(0, 5).map((error: any, index: number) => (
-										<Typography key={index} variant="caption" display="block">
-											Row {error.row}: {error.error}
-										</Typography>
-									))}
-								</Box>
-							)}
 						</Alert>
 					)}
 				</Paper>

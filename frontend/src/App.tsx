@@ -14,7 +14,10 @@ import Transactions from './pages/Transactions';
 import Categories from './pages/Categories';
 import Budgets from './pages/Budgets';
 import Upload from './pages/Upload';
+import UploadManagement from './pages/UploadManagement';
 import Review from './pages/Review';
+import LearnedPatterns from './pages/LearnedPatterns';
+import VendorPatternTest from './pages/VendorPatternTest';
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -75,7 +78,10 @@ function App() {
 									<Route path="categories" element={<Categories />} />
 									<Route path="budgets" element={<Budgets />} />
 									<Route path="upload" element={<Upload />} />
+									<Route path="upload-management" element={<UploadManagement />} />
 									<Route path="review" element={<Review />} />
+									<Route path="patterns" element={<LearnedPatterns />} />
+									<Route path="pattern-test" element={<VendorPatternTest />} />
 								</Route>
 							</Routes>
 						</Router>
