@@ -22,8 +22,11 @@ async def upload_csv(
     current_user: User = Depends(get_current_active_user)
 ):
     # Validate file type
-    if not file.filename.endswith('.csv'):
+    if not file.filename or not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+    
+    # Store original filename
+    original_filename = file.filename
     
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
@@ -31,9 +34,9 @@ async def upload_csv(
         tmp_file_path = tmp_file.name
     
     try:
-        # Process CSV
+        # Process CSV with original filename preserved
         processor = CSVProcessor(db, str(current_user.id))
-        upload_log = processor.process_csv(tmp_file_path, mapping_id)
+        upload_log = processor.process_csv(tmp_file_path, mapping_id, original_filename)
         
         return {"upload_id": str(upload_log.id), "status": upload_log.status}
     finally:

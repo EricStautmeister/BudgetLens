@@ -20,7 +20,9 @@ import {
 	Alert,
 	Card,
 	CardContent,
-	Grid
+	Grid,
+	Tooltip,
+	Stack
 } from '@mui/material';
 import {
 	Delete,
@@ -30,6 +32,7 @@ import {
 	CheckCircle,
 	Error as ErrorIcon,
 	Warning,
+	InsertDriveFile,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useSnackbar } from 'notistack';
@@ -123,15 +126,45 @@ export default function UploadManagement() {
 		}
 	};
 
+	const getFileExtension = (filename: string) => {
+		const ext = filename.split('.').pop()?.toLowerCase();
+		return ext || 'unknown';
+	};
+
+	const getFileDisplayName = (filename: string) => {
+		// Truncate very long filenames for display
+		if (filename.length > 40) {
+			const ext = filename.split('.').pop();
+			const name = filename.substring(0, filename.lastIndexOf('.'));
+			return `${name.substring(0, 35)}...${ext}`;
+		}
+		return filename;
+	};
+
+	// const formatFileSize = (bytes: number) => {
+	// 	if (bytes === 0) return '0 B';
+	// 	const k = 1024;
+	// 	const sizes = ['B', 'KB', 'MB', 'GB'];
+	// 	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	// 	return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	// };
+
 	if (isLoading) {
 		return <Typography>Loading...</Typography>;
 	}
 
 	return (
 		<Box>
-			<Typography variant="h4" gutterBottom>
-				Upload Management
-			</Typography>
+			<Box display="flex" alignItems="center" gap={2} mb={3}>
+				<InsertDriveFile color="primary" />
+				<Typography variant="h4">Upload Management</Typography>
+			</Box>
+
+			<Alert severity="info" sx={{ mb: 3 }}>
+				<Typography variant="body2">
+					Manage your uploaded bank statements and CSV files. All original filenames are preserved to help you identify your uploads.
+				</Typography>
+			</Alert>
 
 			{/* Stats Cards */}
 			{stats && (
@@ -189,10 +222,9 @@ export default function UploadManagement() {
 					<TableHead>
 						<TableRow>
 							<TableCell>Status</TableCell>
-							<TableCell>Filename</TableCell>
+							<TableCell>Original Filename</TableCell>
 							<TableCell>Upload Date</TableCell>
-							<TableCell align="right">Processed</TableCell>
-							<TableCell align="right">Errors</TableCell>
+							<TableCell align="right">Processing Results</TableCell>
 							<TableCell align="center">Actions</TableCell>
 						</TableRow>
 					</TableHead>
@@ -211,47 +243,96 @@ export default function UploadManagement() {
 								</TableCell>
 								<TableCell>
 									<Box>
-										<Typography variant="body2">{upload.filename}</Typography>
-										{upload.error_details?.summary && (
-											<Typography variant="caption" color="textSecondary">
-												{upload.error_details.summary.processed} of{' '}
-												{upload.error_details.summary.total_rows} rows
-											</Typography>
-										)}
+										<Stack direction="row" alignItems="center" spacing={1}>
+											<InsertDriveFile 
+												fontSize="small" 
+												color={upload.status === 'completed' ? 'success' : 'action'} 
+											/>
+											<Box>
+												<Tooltip title={upload.filename} arrow>
+													<Typography variant="body2" fontWeight="medium">
+														{getFileDisplayName(upload.filename)}
+													</Typography>
+												</Tooltip>
+												<Typography variant="caption" color="textSecondary">
+													{getFileExtension(upload.filename).toUpperCase()} file
+													{upload.error_details?.summary && (
+														<> • {upload.error_details.summary.processed} of{' '}
+														{upload.error_details.summary.total_rows} rows processed</>
+													)}
+												</Typography>
+											</Box>
+										</Stack>
 									</Box>
 								</TableCell>
 								<TableCell>
-									{format(new Date(upload.created_at), 'MMM dd, yyyy HH:mm')}
+									<Box>
+										<Typography variant="body2">
+											{format(new Date(upload.created_at), 'MMM dd, yyyy')}
+										</Typography>
+										<Typography variant="caption" color="textSecondary">
+											{format(new Date(upload.created_at), 'HH:mm:ss')}
+										</Typography>
+									</Box>
 								</TableCell>
-								<TableCell align="right">{upload.processed_rows || 0}</TableCell>
 								<TableCell align="right">
-									{upload.error_count > 0 ? (
-										<Chip label={upload.error_count} color="error" size="small" />
-									) : (
-										0
-									)}
+									<Box display="flex" flexDirection="column" alignItems="flex-end" gap={0.5}>
+										{upload.status === 'completed' && (
+											<Chip 
+												label={`${upload.processed_rows || 0} processed`} 
+												color="success" 
+												size="small" 
+											/>
+										)}
+										{upload.error_count > 0 && (
+											<Chip 
+												label={`${upload.error_count} errors`} 
+												color="error" 
+												size="small" 
+											/>
+										)}
+										{upload.error_details?.summary?.skipped > 0 && (
+											<Chip 
+												label={`${upload.error_details.summary.skipped} skipped`} 
+												color="warning" 
+												size="small" 
+											/>
+										)}
+									</Box>
 								</TableCell>
 								<TableCell align="center">
-									<IconButton
-										onClick={() =>
-											setViewTransactionsDialog({ id: upload.id, filename: upload.filename })
-										}
-										title="View transactions">
-										<Visibility />
-									</IconButton>
-									{upload.status === 'failed' && (
-										<IconButton
-											onClick={() => retryMutation.mutate(upload.id)}
-											title="Retry upload">
-											<Refresh />
-										</IconButton>
-									)}
-									<IconButton
-										onClick={() => setDeleteDialog(upload)}
-										color="error"
-										title="Delete upload and transactions">
-										<Delete />
-									</IconButton>
+									<Box display="flex" justifyContent="center">
+										<Tooltip title="View transactions from this upload">
+											<IconButton
+												onClick={() =>
+													setViewTransactionsDialog({ 
+														id: upload.id, 
+														filename: upload.filename 
+													})
+												}
+												size="small">
+												<Visibility />
+											</IconButton>
+										</Tooltip>
+										{upload.status === 'failed' && (
+											<Tooltip title="Retry failed upload">
+												<IconButton
+													onClick={() => retryMutation.mutate(upload.id)}
+													size="small"
+													color="primary">
+													<Refresh />
+												</IconButton>
+											</Tooltip>
+										)}
+										<Tooltip title="Delete upload and all transactions">
+											<IconButton
+												onClick={() => setDeleteDialog(upload)}
+												color="error"
+												size="small">
+												<Delete />
+											</IconButton>
+										</Tooltip>
+									</Box>
 								</TableCell>
 							</TableRow>
 						))}
@@ -261,25 +342,39 @@ export default function UploadManagement() {
 
 			{uploads?.length === 0 && (
 				<Paper sx={{ p: 3, textAlign: 'center' }}>
-					<Typography variant="body1" color="textSecondary">
-						No uploads found. Upload your first CSV file to get started!
+					<InsertDriveFile sx={{ fontSize: 48, color: 'action.disabled', mb: 2 }} />
+					<Typography variant="h6" color="textSecondary" gutterBottom>
+						No uploads found
+					</Typography>
+					<Typography variant="body2" color="textSecondary">
+						Upload your first CSV file to get started! All original filenames will be preserved.
 					</Typography>
 				</Paper>
 			)}
 
 			{/* Delete Confirmation Dialog */}
 			<Dialog open={!!deleteDialog} onClose={() => setDeleteDialog(null)} maxWidth="sm" fullWidth>
-				<DialogTitle>Delete Upload</DialogTitle>
+				<DialogTitle>
+					<Box display="flex" alignItems="center" gap={1}>
+						<Warning color="error" />
+						Delete Upload
+					</Box>
+				</DialogTitle>
 				<DialogContent>
 					<Alert severity="warning" sx={{ mb: 2 }}>
 						This will permanently delete the upload and ALL associated transactions. This action
 						cannot be undone.
 					</Alert>
-					<Typography>
-						Are you sure you want to delete <strong>{deleteDialog?.filename}</strong>?
-					</Typography>
-					<Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-						This upload contains {deleteDialog?.processed_rows} transactions that will be removed
+					<Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, mb: 2 }}>
+						<Typography variant="subtitle2" gutterBottom>
+							File to delete:
+						</Typography>
+						<Typography variant="body1" fontWeight="medium">
+							{deleteDialog?.filename}
+						</Typography>
+					</Box>
+					<Typography variant="body2" color="textSecondary">
+						This upload contains {deleteDialog?.processed_rows || 0} transactions that will be removed
 						from your account.
 					</Typography>
 				</DialogContent>
@@ -290,7 +385,7 @@ export default function UploadManagement() {
 						color="error"
 						variant="contained"
 						disabled={deleteMutation.isPending}>
-						{deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+						{deleteMutation.isPending ? 'Deleting...' : 'Delete Upload'}
 					</Button>
 				</DialogActions>
 			</Dialog>
@@ -301,13 +396,29 @@ export default function UploadManagement() {
 				onClose={() => setViewTransactionsDialog(null)}
 				maxWidth="md"
 				fullWidth>
-				<DialogTitle>Transactions from {viewTransactionsDialog?.filename}</DialogTitle>
+				<DialogTitle>
+					<Box display="flex" alignItems="center" gap={1}>
+						<InsertDriveFile />
+						<Box>
+							<Typography variant="h6">
+								Transactions from Upload
+							</Typography>
+							<Typography variant="body2" color="textSecondary">
+								{viewTransactionsDialog?.filename}
+							</Typography>
+						</Box>
+					</Box>
+				</DialogTitle>
 				<DialogContent>
 					{transactions && (
 						<>
-							<Typography variant="body2" color="textSecondary" gutterBottom>
-								{transactions.transactions.length} transactions found
-							</Typography>
+							<Alert severity="info" sx={{ mb: 2 }}>
+								<Typography variant="body2">
+									Found {transactions.transactions.length} transactions from this upload.
+									All transactions shown below were imported from the original file:
+									<strong> {viewTransactionsDialog?.filename}</strong>
+								</Typography>
+							</Alert>
 							<TableContainer sx={{ maxHeight: 400 }}>
 								<Table stickyHeader size="small">
 									<TableHead>
@@ -315,6 +426,7 @@ export default function UploadManagement() {
 											<TableCell>Date</TableCell>
 											<TableCell>Description</TableCell>
 											<TableCell align="right">Amount</TableCell>
+											<TableCell>Import Time</TableCell>
 										</TableRow>
 									</TableHead>
 									<TableBody>
@@ -323,12 +435,25 @@ export default function UploadManagement() {
 												<TableCell>
 													{format(new Date(transaction.date), 'MMM dd, yyyy')}
 												</TableCell>
-												<TableCell>{transaction.description}</TableCell>
+												<TableCell>
+													<Typography variant="body2" noWrap>
+														{transaction.description}
+													</Typography>
+												</TableCell>
 												<TableCell align="right">
-													${Math.abs(transaction.amount).toFixed(2)}
-													{transaction.amount < 0 && (
-														<Chip label="Debit" size="small" sx={{ ml: 1 }} />
-													)}
+													<Box display="flex" alignItems="center" justifyContent="flex-end" gap={1}>
+														<Typography variant="body2">
+															${Math.abs(transaction.amount).toFixed(2)}
+														</Typography>
+														{transaction.amount < 0 && (
+															<Chip label="Debit" size="small" color="default" />
+														)}
+													</Box>
+												</TableCell>
+												<TableCell>
+													<Typography variant="caption" color="textSecondary">
+														{format(new Date(transaction.created_at), 'HH:mm:ss')}
+													</Typography>
 												</TableCell>
 											</TableRow>
 										))}

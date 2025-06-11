@@ -142,10 +142,14 @@ class CSVProcessor:
                 return existing_mapping
             raise e
     
-    def process_csv(self, file_path: str, mapping_id: Optional[str] = None) -> UploadLog:
+    def process_csv(self, file_path: str, mapping_id: Optional[str] = None, original_filename: Optional[str] = None) -> UploadLog:
         """Process CSV file and create transactions"""
-        # Extract just the filename (without path)
-        filename = file_path.split('/')[-1]
+        # Use original filename if provided, otherwise extract from path
+        if original_filename:
+            filename = original_filename
+        else:
+            # Fallback to extracting from file path (legacy behavior)
+            filename = file_path.split('/')[-1]
         
         upload_log = UploadLog(
             user_id=self.user_id,
@@ -172,7 +176,7 @@ class CSVProcessor:
             if not mapping:
                 raise ValueError("Unable to detect CSV format. Please configure mapping.")
             
-            logger.info(f"Using mapping: {mapping.source_name}")
+            logger.info(f"Using mapping: {mapping.source_name} for file: {filename}")
             
             # Process transactions
             processed_count = 0
@@ -232,21 +236,21 @@ class CSVProcessor:
             if skipped_details:
                 all_issues.extend([{"type": "skipped", **skip} for skip in skipped_details])
             
-            logger.info(f"Processing complete: {processed_count} processed, {skipped_count} skipped, {len(errors)} errors")
+            logger.info(f"Processing complete for {filename}: {processed_count} processed, {skipped_count} skipped, {len(errors)} errors")
             
             # Commit transactions
             try:
                 self.db.commit()
             except Exception as commit_error:
                 self.db.rollback()
-                logger.error(f"Failed to commit transactions: {commit_error}")
+                logger.error(f"Failed to commit transactions for {filename}: {commit_error}")
                 raise commit_error
             
             # Run categorization
             try:
                 self.categorization_service.categorize_new_transactions()
             except Exception as cat_error:
-                logger.warning(f"Categorization failed: {cat_error}")
+                logger.warning(f"Categorization failed for {filename}: {cat_error}")
                 # Don't fail the whole upload if categorization fails
             
             # Update upload log
@@ -270,13 +274,13 @@ class CSVProcessor:
             upload_log.status = "failed"
             upload_log.error_details = {"error": str(e)}
             upload_log.completed_at = datetime.utcnow()
-            logger.error(f"CSV processing failed: {str(e)}")
+            logger.error(f"CSV processing failed for {filename}: {str(e)}")
         
         # Always try to commit the upload log status
         try:
             self.db.commit()
         except Exception as log_error:
-            logger.error(f"Failed to update upload log: {log_error}")
+            logger.error(f"Failed to update upload log for {filename}: {log_error}")
             
         return upload_log
     

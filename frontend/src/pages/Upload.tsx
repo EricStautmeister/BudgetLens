@@ -12,16 +12,22 @@ import {
 	MenuItem,
 	FormControl,
 	InputLabel,
-	List,
-	ListItem,
-	ListItemIcon,
-	ListItemText,
 	Chip,
 	Accordion,
 	AccordionSummary,
 	AccordionDetails,
+	Stack,
+	Divider
 } from '@mui/material';
-import { CloudUpload, CheckCircle, Error as ErrorIcon, Description, ExpandMore } from '@mui/icons-material';
+import { 
+	CloudUpload, 
+	CheckCircle, 
+	Error as ErrorIcon,  
+	ExpandMore,
+	InsertDriveFile,
+	Security,
+	Visibility
+} from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
 
@@ -80,11 +86,33 @@ export default function Upload() {
 		},
 	});
 
+	const formatFileSize = (bytes: number) => {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	};
+
 	return (
 		<Box>
-			<Typography variant="h4" gutterBottom>
-				Upload Bank Statement
-			</Typography>
+			<Box display="flex" alignItems="center" gap={2} mb={3}>
+				<CloudUpload color="primary" />
+				<Typography variant="h4">Upload Bank Statement</Typography>
+			</Box>
+
+			{/* Info Alert */}
+			<Alert severity="info" sx={{ mb: 3 }}>
+				<Stack spacing={1}>
+					<Typography variant="body2">
+						<strong>Your files are secure:</strong> Original filenames are preserved and displayed 
+						in the upload management interface so you can easily identify your imports.
+					</Typography>
+					<Typography variant="body2">
+						Supported formats: CSV files from Swiss banks (ZKB, Cornercard) and other institutions.
+					</Typography>
+				</Stack>
+			</Alert>
 
 			<Paper sx={{ p: 3, mb: 3 }}>
 				<FormControl fullWidth sx={{ mb: 3 }}>
@@ -93,10 +121,18 @@ export default function Upload() {
 						value={selectedMapping}
 						onChange={(e) => setSelectedMapping(e.target.value)}
 						label="Bank Format">
-						<MenuItem value="">Auto-detect</MenuItem>
+						<MenuItem value="">
+							<Box display="flex" alignItems="center" gap={1}>
+								<Visibility fontSize="small" />
+								Auto-detect format
+							</Box>
+						</MenuItem>
 						{mappings?.map((mapping: any) => (
 							<MenuItem key={mapping.id} value={mapping.id}>
-								{mapping.source_name}
+								<Box display="flex" alignItems="center" gap={1}>
+									<InsertDriveFile fontSize="small" />
+									{mapping.source_name}
+								</Box>
 							</MenuItem>
 						))}
 					</Select>
@@ -113,40 +149,63 @@ export default function Upload() {
 						cursor: 'pointer',
 						backgroundColor: isDragActive ? 'action.hover' : 'background.paper',
 						transition: 'all 0.3s ease',
+						'&:hover': {
+							borderColor: 'primary.main',
+							backgroundColor: 'action.hover'
+						}
 					}}>
 					<input {...getInputProps()} />
 					<CloudUpload sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
 					<Typography variant="h6" gutterBottom>
-						{isDragActive ? 'Drop the file here' : 'Drag & drop your CSV file here'}
+						{isDragActive ? 'Drop your CSV file here' : 'Upload your bank statement'}
 					</Typography>
-					<Typography variant="body2" color="textSecondary">
-						or click to select a file
+					<Typography variant="body2" color="textSecondary" paragraph>
+						Drag & drop your CSV file here, or click to select
 					</Typography>
-					<Button variant="contained" sx={{ mt: 2 }}>
+					<Button variant="contained" sx={{ mt: 1 }}>
 						Choose File
 					</Button>
+					
+					<Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+						<Security fontSize="small" color="primary" />
+						<Typography variant="caption" color="primary">
+							Original filename preserved for easy identification
+						</Typography>
+					</Box>
 				</Box>
 
 				{acceptedFiles.length > 0 && (
-					<List sx={{ mt: 2 }}>
+					<Paper variant="outlined" sx={{ mt: 2, p: 2 }}>
+						<Typography variant="subtitle2" gutterBottom>
+							Selected File:
+						</Typography>
 						{acceptedFiles.map((file) => (
-							<ListItem key={file.name}>
-								<ListItemIcon>
-									<Description />
-								</ListItemIcon>
-								<ListItemText primary={file.name} secondary={`${(file.size / 1024).toFixed(2)} KB`} />
-							</ListItem>
+							<Box key={file.name} display="flex" alignItems="center" gap={2}>
+								<InsertDriveFile color="primary" />
+								<Box flexGrow={1}>
+									<Typography variant="body1" fontWeight="medium">
+										{file.name}
+									</Typography>
+									<Typography variant="caption" color="textSecondary">
+										{formatFileSize(file.size)} • {file.type || 'CSV file'}
+									</Typography>
+								</Box>
+								<Chip label="Ready to upload" color="success" size="small" />
+							</Box>
 						))}
-					</List>
+					</Paper>
 				)}
 			</Paper>
 
 			{uploadMutation.isPending && (
-				<Paper sx={{ p: 3 }}>
+				<Paper sx={{ p: 3, mb: 3 }}>
 					<Typography variant="h6" gutterBottom>
-						Uploading...
+						Uploading and processing your file...
 					</Typography>
-					<LinearProgress />
+					<LinearProgress sx={{ mb: 2 }} />
+					<Typography variant="body2" color="textSecondary">
+						Your original filename is being preserved: {acceptedFiles[0]?.name}
+					</Typography>
 				</Paper>
 			)}
 
@@ -158,17 +217,33 @@ export default function Upload() {
 						) : uploadStatus.status === 'failed' ? (
 							<ErrorIcon color="error" sx={{ mr: 1 }} />
 						) : (
-							<LinearProgress sx={{ mr: 1, flexGrow: 1 }} />
+							<CloudUpload color="primary" sx={{ mr: 1 }} />
 						)}
-						<Typography variant="h6">
-							Processing Status: <Chip label={uploadStatus.status} size="small" />
-						</Typography>
+						<Box flexGrow={1}>
+							<Typography variant="h6">
+								Processing Status: <Chip label={uploadStatus.status} size="small" />
+							</Typography>
+							<Typography variant="body2" color="textSecondary">
+								File: {uploadStatus.filename}
+							</Typography>
+						</Box>
 					</Box>
 
 					{uploadStatus.status === 'completed' && (
-						<Alert severity="success">
-							Successfully processed {uploadStatus.processed_rows} of {uploadStatus.total_rows}{' '}
-							transactions
+						<Alert severity="success" sx={{ mb: 2 }}>
+							<Typography variant="body2">
+								<strong>Success!</strong> Processed {uploadStatus.processed_rows} of {uploadStatus.total_rows} transactions
+								from your file <strong>{uploadStatus.filename}</strong>
+							</Typography>
+						</Alert>
+					)}
+
+					{uploadStatus.status === 'failed' && (
+						<Alert severity="error" sx={{ mb: 2 }}>
+							<Typography variant="body2">
+								<strong>Upload failed</strong> for file <strong>{uploadStatus.filename}</strong>.
+								Please check the file format and try again.
+							</Typography>
 						</Alert>
 					)}
 
@@ -176,7 +251,7 @@ export default function Upload() {
 					{uploadStatus.error_details?.summary && (
 						<Alert severity="info" sx={{ mt: 2 }}>
 							<Typography variant="body2">
-								<strong>Processing Summary:</strong><br/>
+								<strong>Processing Summary for {uploadStatus.filename}:</strong><br/>
 								• Total rows: {uploadStatus.error_details.summary.total_rows}<br/>
 								• Successfully processed: {uploadStatus.error_details.summary.processed}<br/>
 								• Skipped: {uploadStatus.error_details.summary.skipped}<br/>
@@ -245,8 +320,21 @@ export default function Upload() {
 					{/* Legacy error handling for backward compatibility */}
 					{uploadStatus.error_count > 0 && !uploadStatus.error_details && (
 						<Alert severity="warning" sx={{ mt: 2 }}>
-							{uploadStatus.error_count} errors occurred during processing
+							{uploadStatus.error_count} errors occurred during processing of {uploadStatus.filename}
 						</Alert>
+					)}
+
+					{uploadStatus.status === 'completed' && (
+						<>
+							<Divider sx={{ my: 2 }} />
+							<Box display="flex" alignItems="center" gap={1}>
+								<InsertDriveFile fontSize="small" color="primary" />
+								<Typography variant="body2" color="textSecondary">
+									Your file <strong>{uploadStatus.filename}</strong> has been successfully processed 
+									and is now available in the Upload Management section.
+								</Typography>
+							</Box>
+						</>
 					)}
 				</Paper>
 			)}
