@@ -59,7 +59,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/budgetlens.git
+   git clone https://github.com/EricStautmeister/budgetlens.git
    cd budgetlens
    ```
 
@@ -450,6 +450,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ by Eric Stautmeister**
 
-[Report Bug](https://github.com/yourusername/budgetlens/issues) • [Request Feature](https://github.com/yourusername/budgetlens/issues) • [Documentation](https://github.com/yourusername/budgetlens/wiki)
+[Report Bug](https://github.com/EricStautmeister/budgetlens/issues) • [Request Feature](https://github.com/EricStautmeister/budgetlens/issues) • [Documentation](https://github.com/EricStautmeister/budgetlens/wiki)
 
 </div>
