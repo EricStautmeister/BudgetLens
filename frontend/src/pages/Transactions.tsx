@@ -323,7 +323,7 @@ export default function Transactions() {
                             </TableCell>
                             <TableCell>Date</TableCell>
                             <TableCell>Description</TableCell>
-                            <TableCell>Account</TableCell> {/* NEW */}
+                            <TableCell>Account</TableCell>
                             <TableCell>Category</TableCell>
                             <TableCell>Vendor</TableCell>
                             <TableCell align="right">Amount</TableCell>
@@ -364,6 +364,9 @@ export default function Transactions() {
                                         </Typography>
                                         {transaction.amount < 0 && (
                                             <Chip label="Debit" size="small" color="default" />
+                                        )}
+                                        {transaction.amount > 0 && (
+                                            <Chip label="Credit" size="small" color="default" />
                                         )}
                                     </Box>
                                 </TableCell>

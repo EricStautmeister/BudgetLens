@@ -1,6 +1,4 @@
-// frontend/src/pages/Upload.tsx - Updated with account selection
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -39,8 +37,9 @@ import { apiClient } from '../services/api';
 export default function Upload() {
 	const { enqueueSnackbar } = useSnackbar();
 	const [selectedMapping, setSelectedMapping] = useState<string>('');
-	const [selectedAccount, setSelectedAccount] = useState<string>(''); // NEW
+	const [selectedAccount, setSelectedAccount] = useState<string>('');
 	const [uploadStatus, setUploadStatus] = useState<any>(null);
+	const [isPolling, setIsPolling] = useState(false);
 
 	const { data: mappings } = useQuery({
 		queryKey: ['csvMappings'],
@@ -50,7 +49,7 @@ export default function Upload() {
 		},
 	});
 
-	const { data: accounts } = useQuery({ // NEW
+	const { data: accounts } = useQuery({
 		queryKey: ['accounts'],
 		queryFn: async () => {
 			const response = await apiClient.getAccounts();
@@ -58,43 +57,93 @@ export default function Upload() {
 		},
 	});
 
+	const getTargetAccount = () => {
+  		if (!accounts?.length) return null;
+  		if (selectedAccount) return selectedAccount;
+  		return accounts.find(acc => acc.is_default)?.id || accounts[0].id;
+	};
+
+	const getTargetAccountName = (): string => {
+		const targetAccountId = getTargetAccount();
+		if (!targetAccountId || !accounts) return 'No Account';
+		
+		const account = accounts.find((acc: any) => acc.id === targetAccountId);
+		return account ? account.name : 'Unknown Account';
+	};
+
+
+
 	const uploadMutation = useMutation({
 		mutationFn: async (file: File) => {
-			// Use updated API method with account support
-			const response = await apiClient.uploadCSVWithAccount(file, selectedAccount, selectedMapping);
+			const targetAccount = getTargetAccount();
+			if (!targetAccount) {
+				throw new Error('No account available for upload');
+			}
+			
+			const response = await apiClient.uploadCSVWithAccount(file, targetAccount, selectedMapping);
 			return response.data;
 		},
 		onSuccess: async (data) => {
 			enqueueSnackbar('File uploaded successfully!', { variant: 'success' });
-			// Poll for status
-			pollUploadStatus(data.upload_id);
+			setUploadStatus({ 
+				upload_id: data.upload_id, 
+				status: 'processing',
+				filename: data.filename || 'Unknown'
+			});
+			setIsPolling(true);
 		},
 		onError: (error: any) => {
 			enqueueSnackbar(error.response?.data?.detail || 'Upload failed', { variant: 'error' });
 		},
 	});
 
-	const createAccountMutation = useMutation({ // NEW
-		mutationFn: async () => {
-			// Navigate to accounts page or create a quick account
-			window.location.href = '/accounts';
-		},
-	});
+	// const createAccountMutation = useMutation({ // NEW
+	// 	mutationFn: async () => {
+	// 		// Navigate to accounts page or create a quick account
+	// 		window.location.href = '/accounts';
+	// 	},
+	// });
 
-	const pollUploadStatus = async (uploadId: string) => {
-		const interval = setInterval(async () => {
+	useEffect(() => {
+		if (!uploadStatus?.upload_id || !isPolling) return;
+
+		const pollStatus = async () => {
 			try {
-				const response = await apiClient.getUploadStatus(uploadId);
-				setUploadStatus(response.data);
+				const response = await apiClient.getUploadStatus(uploadStatus.upload_id);
+				const newStatus = response.data;
+				
+				setUploadStatus(newStatus);
 
-				if (response.data.status !== 'processing') {
-					clearInterval(interval);
+				// Stop polling if status is final
+				if (newStatus.status === 'completed' || newStatus.status === 'failed') {
+					setIsPolling(false);
 				}
 			} catch (error) {
-				clearInterval(interval);
+				console.error('Polling error:', error);
+				// Stop polling on error to prevent infinite failed requests
+				setIsPolling(false);
+				enqueueSnackbar('Failed to check upload status', { variant: 'error' });
 			}
-		}, 2000);
-	};
+		};
+
+		// Poll immediately, then every 2 seconds
+		pollStatus();
+		const interval = setInterval(pollStatus, 2000);
+
+		// Cleanup function - this runs when component unmounts or dependencies change
+		return () => {
+			clearInterval(interval);
+		};
+	}, [uploadStatus?.upload_id, isPolling, enqueueSnackbar]);
+
+	// NEW: Cleanup when component unmounts
+	useEffect(() => {
+		return () => {
+			setIsPolling(false);
+		};
+	}, []);
+
+	
 
 	const { getRootProps, getInputProps, isDragActive, acceptedFiles } = useDropzone({
 		accept: {
@@ -103,11 +152,15 @@ export default function Upload() {
 		maxFiles: 1,
 		onDrop: (files) => {
 			if (files.length > 0) {
-				// Check if account is selected (if there are multiple accounts)
-				if (accounts && accounts.length > 1 && !selectedAccount) {
-					enqueueSnackbar('Please select an account for the transactions', { variant: 'warning' });
+				const targetAccount = getTargetAccount();
+				
+				if (!targetAccount) {
+					enqueueSnackbar('Please create an account before uploading transactions', { 
+						variant: 'error' 
+					});
 					return;
 				}
+				
 				uploadMutation.mutate(files[0]);
 			}
 		},
@@ -119,16 +172,6 @@ export default function Upload() {
 		const sizes = ['B', 'KB', 'MB', 'GB'];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
 		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-	};
-
-	const getSelectedAccountName = () => {
-		if (!selectedAccount || !accounts) return 'Default Account';
-		const account = accounts.find((acc: any) => acc.id === selectedAccount);
-		return account ? account.name : 'Default Account';
-	};
-
-	const getDefaultAccount = () => {
-		return accounts?.find((acc: any) => acc.is_default);
 	};
 
 	return (
@@ -159,7 +202,7 @@ export default function Upload() {
 					</Typography>
 					<Button 
 						startIcon={<Add />} 
-						onClick={() => createAccountMutation.mutate()}
+						onClick={() => window.location.href = '/accounts'}
 						sx={{ mt: 1 }}>
 						Create Your First Account
 					</Button>
@@ -177,32 +220,26 @@ export default function Upload() {
 								onChange={(e) => setSelectedAccount(e.target.value)}
 								label="Target Account"
 								disabled={!accounts || accounts.length === 0}>
-								{accounts && accounts.length === 1 ? (
-									<MenuItem value="">
+								
+								{/* Auto-select option */}
+								<MenuItem value="">
+									<Box display="flex" alignItems="center" gap={1}>
+										<AccountBalance fontSize="small" />
+										Auto-select ({getTargetAccountName()})
+									</Box>
+								</MenuItem>
+								
+								{/* All available accounts */}
+								{accounts?.map((account: any) => (
+									<MenuItem key={account.id} value={account.id}>
 										<Box display="flex" alignItems="center" gap={1}>
 											<AccountBalance fontSize="small" />
-											{accounts[0].name} (Default)
+											{account.name}
+											{account.is_default && <Chip label="Default" size="small" color="primary" />}
+											{account.institution && ` (${account.institution})`}
 										</Box>
 									</MenuItem>
-								) : (
-									<>
-										<MenuItem value="">
-											<Box display="flex" alignItems="center" gap={1}>
-												<AccountBalance fontSize="small" />
-												{getDefaultAccount() ? `${getDefaultAccount().name} (Default)` : 'Use Default Account'}
-											</Box>
-										</MenuItem>
-										{accounts?.filter((acc: any) => !acc.is_default).map((account: any) => (
-											<MenuItem key={account.id} value={account.id}>
-												<Box display="flex" alignItems="center" gap={1}>
-													<AccountBalance fontSize="small" />
-													{account.name}
-													{account.institution && ` (${account.institution})`}
-												</Box>
-											</MenuItem>
-										))}
-									</>
-								)}
+								))}
 							</Select>
 						</FormControl>
 					</Grid>
@@ -240,15 +277,19 @@ export default function Upload() {
 								Upload Summary
 							</Typography>
 							<Typography variant="body2" color="textSecondary">
-								Account: <strong>{getSelectedAccountName()}</strong>
+								Account: <strong>{getTargetAccountName()}</strong>
 							</Typography>
 							<Typography variant="body2" color="textSecondary">
 								Format: <strong>{selectedMapping ? mappings?.find((m: any) => m.id === selectedMapping)?.source_name : 'Auto-detect'}</strong>
 							</Typography>
+							{selectedAccount && (
+								<Chip label="Manual Selection" size="small" color="secondary" sx={{ mt: 1 }} />
+							)}
 						</Paper>
 					</Grid>
 				</Grid>
 
+				{/* Upload area */}
 				<Box
 					{...getRootProps()}
 					sx={{
@@ -275,24 +316,23 @@ export default function Upload() {
 						Drag & drop your CSV file here, or click to select
 					</Typography>
 					
-					{/* Upload Requirements */}
-					{accounts && accounts.length > 1 && !selectedAccount && (
-						<Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
-							Please select a target account before uploading
+					{/* Upload requirements */}
+					{!getTargetAccount() ? (
+						<Alert severity="error" sx={{ mt: 2, mb: 2 }}>
+							Please create an account before uploading
 						</Alert>
+					) : (
+						<Button 
+							variant="contained" 
+							sx={{ mt: 1 }}>
+							Choose File
+						</Button>
 					)}
-					
-					<Button 
-						variant="contained" 
-						sx={{ mt: 1 }}
-						disabled={accounts && accounts.length > 1 && !selectedAccount}>
-						Choose File
-					</Button>
 					
 					<Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
 						<Security fontSize="small" color="primary" />
 						<Typography variant="caption" color="primary">
-							Transactions will be assigned to: {getSelectedAccountName()}
+							Transactions will be assigned to: {getTargetAccountName()}
 						</Typography>
 					</Box>
 				</Box>
@@ -310,16 +350,21 @@ export default function Upload() {
 										{file.name}
 									</Typography>
 									<Typography variant="caption" color="textSecondary">
-										{formatFileSize(file.size)} • {file.type || 'CSV file'} → {getSelectedAccountName()}
+										{formatFileSize(file.size)} • {file.type || 'CSV file'} → {getTargetAccountName()}
 									</Typography>
 								</Box>
-								<Chip label="Ready to upload" color="success" size="small" />
+								<Chip 
+									label={getTargetAccount() ? "Ready to upload" : "Need account"} 
+									color={getTargetAccount() ? "success" : "error"} 
+									size="small" 
+								/>
 							</Box>
 						))}
 					</Paper>
 				)}
 			</Paper>
 
+			{/* Show upload progress and status */}
 			{uploadMutation.isPending && (
 				<Paper sx={{ p: 3, mb: 3 }}>
 					<Typography variant="h6" gutterBottom>
@@ -327,12 +372,27 @@ export default function Upload() {
 					</Typography>
 					<LinearProgress sx={{ mb: 2 }} />
 					<Typography variant="body2" color="textSecondary">
-						File: <strong>{acceptedFiles[0]?.name}</strong> → Account: <strong>{getSelectedAccountName()}</strong>
+						File: <strong>{acceptedFiles[0]?.name}</strong> → Account: <strong>{getTargetAccountName()}</strong>
 					</Typography>
 				</Paper>
 			)}
 
-			{uploadStatus && (
+			{isPolling && uploadStatus && (
+				<Paper sx={{ p: 3, mb: 3 }}>
+					<Box display="flex" alignItems="center" mb={2}>
+						<CloudUpload color="primary" sx={{ mr: 1 }} />
+						<Typography variant="h6">
+							Processing... <Chip label="Checking status" size="small" color="primary" />
+						</Typography>
+					</Box>
+					<LinearProgress sx={{ mb: 2 }} />
+					<Typography variant="body2" color="textSecondary">
+						Upload ID: {uploadStatus.upload_id}
+					</Typography>
+				</Paper>
+			)}
+
+			{uploadStatus && !isPolling && (
 				<Paper sx={{ p: 3 }}>
 					<Box display="flex" alignItems="center" mb={2}>
 						{uploadStatus.status === 'completed' ? (

@@ -564,7 +564,7 @@ class CSVProcessor:
             # Create transaction with upload reference
             transaction = Transaction(
                 user_id=self.user_id,
-                account_id=target_account.id,  # FIXED: Changed from account.id to target_account.id
+                account_id=target_account.id,
                 date=transaction_date,
                 amount=amount,
                 description=description,
@@ -582,3 +582,30 @@ class CSVProcessor:
             """Generate hash for duplicate detection"""
             data = f"{date}{amount}{description}"
             return hashlib.md5(data.encode()).hexdigest()
+    
+    def _is_duplicate_transaction(self, date, amount, description) -> bool:
+        """Check for duplicate with fuzzy matching"""
+        # Exact match first
+        existing = self.db.query(Transaction).filter(
+            Transaction.user_id == self.user_id,
+            Transaction.date == date,
+            Transaction.amount == amount,
+            Transaction.description == description
+        ).first()
+        
+        if existing:
+            return True
+        
+        # Fuzzy match for similar descriptions on same date with same amount
+        similar = self.db.query(Transaction).filter(
+            Transaction.user_id == self.user_id,
+            Transaction.date == date,
+            Transaction.amount == amount
+        ).all()
+        
+        for trans in similar:
+            similarity = fuzz.ratio(trans.description.lower(), description.lower())
+            if similarity > 90:  # 90% similarity threshold
+                return True
+        
+        return False

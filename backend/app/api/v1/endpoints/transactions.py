@@ -1,11 +1,14 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_active_user
 from app.db.base import get_db
-from app.db.models import User, Transaction, Vendor
+from app.db.models import User, Transaction, Vendor, Account, Category
 from app.schemas.transaction import Transaction as TransactionSchema, TransactionFilter, TransactionUpdate
 from app.services.categorization import CategorizationService
+from app.services.account import AccountService
+from app.utils.validation import validate_user_owns_resource, validate_multiple_user_resources
+from app.utils.decorators import validate_transaction_update, validate_bulk_operations
 from datetime import date
 from uuid import UUID
 
@@ -18,13 +21,18 @@ async def list_transactions(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     category_id: Optional[str] = Query(None),
-    account_id: Optional[str] = Query(None),  # NEW: Filter by account
+    account_id: Optional[str] = Query(None),
     needs_review: Optional[str] = Query(None),
-    exclude_transfers: bool = Query(False, description="Exclude transfer transactions"),  # NEW
+    exclude_transfers: bool = Query(False, description="Exclude transfer transactions"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
+    # Use eager loading to prevent N+1 queries
+    query = db.query(Transaction).options(
+        joinedload(Transaction.vendor),
+        joinedload(Transaction.category),
+        joinedload(Transaction.account)
+    ).filter(Transaction.user_id == current_user.id)
     
     if start_date:
         query = query.filter(Transaction.date >= start_date)
@@ -56,13 +64,12 @@ async def list_transactions(
         else:
             raise HTTPException(status_code=422, detail="needs_review must be true or false")
     
-    # NEW: Exclude transfers if requested
+    # Exclude transfers if requested
     if exclude_transfers:
         query = query.filter(Transaction.is_transfer == False)
     
     transactions = query.order_by(Transaction.date.desc()).offset(skip).limit(limit).all()
     
-    # Enrich with vendor, category, and account names
     result = []
     for trans in transactions:
         trans_dict = TransactionSchema.from_orm(trans).dict()
@@ -70,7 +77,7 @@ async def list_transactions(
             trans_dict["vendor_name"] = trans.vendor.name
         if trans.category:
             trans_dict["category_name"] = trans.category.name
-        if trans.account:  # NEW: Add account name
+        if trans.account:
             trans_dict["account_name"] = trans.account.name
             trans_dict["account_type"] = trans.account.account_type.value
         result.append(trans_dict)
@@ -91,6 +98,7 @@ async def get_review_queue(
     return transactions
 
 @router.put("/{transaction_id}/categorize")
+@validate_transaction_update
 async def categorize_transaction(
     transaction_id: UUID,
     update: TransactionUpdate,
@@ -98,16 +106,15 @@ async def categorize_transaction(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Validation happens automatically via decorator
+    if not update.category_id:
+        raise HTTPException(status_code=400, detail="Category ID is required")
+    
+    # Get the validated transaction (we know it exists due to decorator validation)
     transaction = db.query(Transaction).filter(
         Transaction.id == transaction_id,
         Transaction.user_id == current_user.id
     ).first()
-    
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    
-    if not update.category_id:
-        raise HTTPException(status_code=400, detail="Category ID is required")
     
     categorization_service = CategorizationService(db, str(current_user.id))
     
@@ -149,13 +156,9 @@ async def get_vendor_suggestions(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get vendor suggestions for a transaction based on learned patterns"""
-    transaction = db.query(Transaction).filter(
-        Transaction.id == transaction_id,
-        Transaction.user_id == current_user.id
-    ).first()
-    
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = validate_user_owns_resource(
+        db, str(current_user.id), str(transaction_id), Transaction
+    )
     
     categorization_service = CategorizationService(db, str(current_user.id))
     suggestions = categorization_service.get_vendor_suggestions(transaction.description)
@@ -202,6 +205,7 @@ async def get_learned_patterns(
     return {"learned_patterns": patterns}
 
 @router.post("/bulk-categorize")
+@validate_bulk_operations
 async def bulk_categorize(
     transaction_ids: List[UUID],
     category_id: UUID,
@@ -209,6 +213,8 @@ async def bulk_categorize(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Validation happens automatically via decorator
+    # Perform the update
     updated = db.query(Transaction).filter(
         Transaction.id.in_(transaction_ids),
         Transaction.user_id == current_user.id
@@ -220,7 +226,7 @@ async def bulk_categorize(
     }, synchronize_session=False)
     
     db.commit()
-    
+
     return {"message": f"Updated {updated} transactions"}
 
 @router.put("/{transaction_id}/assign-account")
@@ -231,24 +237,19 @@ async def assign_account(
     current_user: User = Depends(get_current_active_user)
 ):
     """Assign a transaction to a specific account"""
-    # Verify account belongs to user
-    account = db.query(Account).filter(
-        Account.id == account_id,
-        Account.user_id == current_user.id,
-        Account.is_active == True
-    ).first()
+    # Validate account ownership
+    account = validate_user_owns_resource(
+        db, str(current_user.id), str(account_id), Account
+    )
     
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    # Validate transaction ownership
+    transaction = validate_user_owns_resource(
+        db, str(current_user.id), str(transaction_id), Transaction
+    )
     
-    # Verify transaction belongs to user
-    transaction = db.query(Transaction).filter(
-        Transaction.id == transaction_id,
-        Transaction.user_id == current_user.id
-    ).first()
-    
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    # Check if account is active
+    if not account.is_active:
+        raise HTTPException(status_code=400, detail="Cannot assign to inactive account")
     
     # Assign account
     transaction.account_id = account_id
@@ -262,6 +263,7 @@ async def assign_account(
     }
 
 @router.post("/bulk-assign-account")
+@validate_bulk_operations
 async def bulk_assign_account(
     transaction_ids: List[UUID],
     account_id: UUID,
@@ -269,15 +271,12 @@ async def bulk_assign_account(
     current_user: User = Depends(get_current_active_user)
 ):
     """Assign multiple transactions to an account"""
-    # Verify account belongs to user
+    # Validation happens automatically via decorator
+    # Get account for response (we know it exists due to decorator validation)
     account = db.query(Account).filter(
         Account.id == account_id,
-        Account.user_id == current_user.id,
-        Account.is_active == True
+        Account.user_id == current_user.id
     ).first()
-    
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
     
     # Update transactions
     updated = db.query(Transaction).filter(

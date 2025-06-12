@@ -154,17 +154,25 @@ class AccountService:
     def ensure_default_account(self) -> Account:
         """Ensure user has a default account, create one if needed"""
         default_account = self.get_default_account()
-        
+
         if not default_account:
-            # Create a default checking account
-            default_data = AccountCreate(
-                name="Main Account",
-                account_type=AccountType.CHECKING,
-                is_default=True
-            )
-            default_account = self.create_account(default_data)
-            logger.info(f"Created default account for user {self.user_id}")
-        
+            try:
+                # Use database transaction to prevent race condition
+                with self.db.begin():
+                    # Double-check after acquiring lock
+                    default_account = self.get_default_account()
+                    if not default_account:
+                        default_data = AccountCreate(
+                            name="Main Account",
+                            account_type=AccountType.CHECKING,
+                            is_default=True
+                        )
+                        default_account = self.create_account(default_data)
+                        logger.info(f"Created default account for user {self.user_id}")
+            except IntegrityError:
+                # Another thread created it, fetch it
+                default_account = self.get_default_account()
+    
         return default_account
 
     def adjust_account_balance(self, account_id: str, adjustment: BalanceAdjustment) -> Optional[Transaction]:
@@ -172,10 +180,10 @@ class AccountService:
         account = self.get_account(account_id)
         if not account:
             return None
-        
+
         # Create a balance adjustment transaction
         description = adjustment.description or f"Balance adjustment for {account.name}"
-        
+
         transaction = Transaction(
             user_id=self.user_id,
             account_id=account_id,
@@ -187,30 +195,30 @@ class AccountService:
             needs_review=False,  # Balance adjustments don't need review
             confidence_score=1.0  # Manual adjustments have full confidence
         )
-        
+
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
-        
+
         logger.info(f"Adjusted balance for account {account.name} by {adjustment.amount}")
         return transaction
-    
+
     def set_account_balance(self, account_id: str, balance_update: BalanceUpdate) -> Optional[Transaction]:
         """Set account balance to a specific amount by calculating the difference"""
         account = self.get_account(account_id)
         if not account:
             return None
-        
+
         current_balance = self.get_account_balance(account_id)
         adjustment_amount = balance_update.new_balance - current_balance
-        
+
         if adjustment_amount == 0:
             logger.info(f"No adjustment needed for account {account.name} - already at target balance")
             return None
-        
+
         # Create adjustment transaction
         description = balance_update.description or f"Balance set to {balance_update.new_balance} for {account.name}"
-        
+
         transaction = Transaction(
             user_id=self.user_id,
             account_id=account_id,
@@ -222,24 +230,24 @@ class AccountService:
             needs_review=False,
             confidence_score=1.0
         )
-        
+
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
-        
+
         logger.info(f"Set balance for account {account.name} to {balance_update.new_balance} (adjustment: {adjustment_amount})")
         return transaction
-    
+
     def get_account_balance_history(self, account_id: str, limit: int = 10) -> List[Dict]:
         """Get recent balance-affecting transactions for an account"""
         transactions = self.db.query(Transaction).filter(
             Transaction.account_id == account_id,
             Transaction.user_id == self.user_id
         ).order_by(Transaction.date.desc(), Transaction.created_at.desc()).limit(limit).all()
-        
+
         running_balance = self.get_account_balance(account_id)
         history = []
-        
+
         for transaction in reversed(transactions):
             history.append({
                 "id": str(transaction.id),
@@ -250,5 +258,5 @@ class AccountService:
                 "is_adjustment": "balance adjustment" in transaction.description.lower()
             })
             running_balance -= transaction.amount
-        
+
         return list(reversed(history))
