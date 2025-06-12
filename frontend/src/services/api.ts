@@ -190,16 +190,54 @@ class ApiClient {
 		return this.client.get('/categories/');
 	}
 
-	async createCategory(data: any) {
+	async createCategory(data: {
+		name: string;
+		category_type: string;
+		parent_category_id?: string;
+		is_automatic_deduction?: boolean;
+		is_savings?: boolean;
+		allow_auto_learning?: boolean;
+	}) {
 		return this.client.post('/categories/', data);
 	}
 
-	async updateCategory(id: string, data: any) {
+	async updateCategory(id: string, data: {
+		name?: string;
+		category_type?: string;
+		parent_category_id?: string;
+		is_automatic_deduction?: boolean;
+		is_savings?: boolean;
+		allow_auto_learning?: boolean;
+	}) {
 		return this.client.put(`/categories/${id}`, data);
 	}
 
-	async deleteCategory(id: string) {
-		return this.client.delete(`/categories/${id}`);
+	async deleteCategory(id: string, force: boolean = false) {
+		return this.client.delete(`/categories/${id}`, {
+			params: { force }
+		});
+	}
+
+	async getCategoriesHierarchy() {
+		return this.client.get('/categories/hierarchy');
+	}
+
+	async getCategoryStats(periodMonths: number = 12) {
+		return this.client.get('/categories/stats', {
+			params: { period_months: periodMonths }
+		});
+	}
+
+	async initializeDefaultCategories() {
+		return this.client.post('/categories/init-defaults');
+	}
+
+	async getCategoryTypes() {
+		return this.client.get('/categories/types');
+	}
+
+	async getManualReviewCategories() {
+		return this.client.get('/categories/manual-review');
 	}
 
 	// Budget endpoints

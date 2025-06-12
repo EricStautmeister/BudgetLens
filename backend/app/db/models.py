@@ -1,4 +1,4 @@
-# backend/app/db/models.py - Complete models with all relationships fixed
+# backend/app/db/models.py - Updated Category model
 
 from sqlalchemy import Column, String, Integer, Numeric, Boolean, Float, Text, Date, DateTime, ForeignKey, JSON, ARRAY, UniqueConstraint, Enum
 from sqlalchemy.dialects.postgresql import UUID
@@ -8,7 +8,14 @@ import uuid
 from enum import Enum as PyEnum
 from .base import Base
 
-# Account Types Enum
+# NEW: Category Type Enum
+class CategoryType(PyEnum):
+    INCOME = "INCOME"
+    EXPENSE = "EXPENSE" 
+    SAVING = "SAVING"
+    MANUAL_REVIEW = "MANUAL_REVIEW"
+
+# Account Types Enum (existing)
 class AccountType(PyEnum):
     CHECKING = "CHECKING"
     SAVINGS = "SAVINGS"
@@ -31,8 +38,8 @@ class User(Base):
     transactions = relationship("Transaction", back_populates="user")
     categories = relationship("Category", back_populates="user")
     vendors = relationship("Vendor", back_populates="user")
-    budget_periods = relationship("BudgetPeriod", back_populates="user")  # ADDED BACK
-    csv_mappings = relationship("CSVMapping", back_populates="user")      # ADDED BACK
+    budget_periods = relationship("BudgetPeriod", back_populates="user")
+    csv_mappings = relationship("CSVMapping", back_populates="user")
     accounts = relationship("Account", back_populates="user")
 
 class Account(Base):
@@ -83,11 +90,11 @@ class Transaction(Base):
     description = Column(Text, nullable=False)
     source_account = Column(String(100))  # Keep for legacy
     
-    # NEW COLUMNS
+    # Account and transfer columns
     account_id = Column(UUID(as_uuid=True), ForeignKey("accounts.id"))
     transfer_id = Column(UUID(as_uuid=True), ForeignKey("transfers.id"))
     
-    # EXISTING COLUMNS
+    # Category and vendor columns
     vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"))
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
     is_transfer = Column(Boolean, default=False)
@@ -111,6 +118,8 @@ class Vendor(Base):
     patterns = Column(ARRAY(Text))
     default_category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
     confidence_threshold = Column(Float, default=0.8)
+    # NEW: Flag to prevent auto-learning for manual review vendors
+    allow_auto_learning = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
@@ -124,9 +133,18 @@ class Category(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
+    
+    # NEW: Category hierarchy and type
+    category_type = Column(Enum(CategoryType), nullable=False, default=CategoryType.EXPENSE)
     parent_category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))
+    
+    # Updated: Keep existing fields but modify behavior based on type
     is_automatic_deduction = Column(Boolean, default=False)
-    is_savings = Column(Boolean, default=False)
+    is_savings = Column(Boolean, default=False)  # Will be deprecated in favor of category_type
+    
+    # NEW: Control auto-learning behavior
+    allow_auto_learning = Column(Boolean, default=True)
+    
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
