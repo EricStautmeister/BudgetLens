@@ -279,6 +279,109 @@ class ApiClient {
 	async getUploadStats() {
 		return this.client.get('/upload-management/stats');
 	}
+
+	async getAccounts() {
+		return this.client.get('/accounts/');
+	}
+
+	async getAccount(accountId: string) {
+		return this.client.get(`/accounts/${accountId}`);
+	}
+
+	async createAccount(data: any) {
+		return this.client.post('/accounts/', data);
+	}
+
+	async updateAccount(id: string, data: any) {
+		return this.client.put(`/accounts/${id}`, data);
+	}
+
+	async deleteAccount(id: string) {
+		return this.client.delete(`/accounts/${id}`);
+	}
+
+	async ensureDefaultAccount() {
+		return this.client.post('/accounts/ensure-default');
+	}
+
+	// Transfer Management endpoints
+	async detectTransfers(daysLookback: number = 7) {
+		return this.client.get('/transfers/detect', {
+			params: { days_lookback: daysLookback }
+		});
+	}
+
+	async getTransfers(limit: number = 50) {
+		return this.client.get('/transfers/', {
+			params: { limit }
+		});
+	}
+
+	async createManualTransfer(data: { from_transaction_id: string; to_transaction_id: string; amount: number }) {
+		return this.client.post('/transfers/match', data);
+	}
+
+	async deleteTransfer(transferId: string) {
+		return this.client.delete(`/transfers/${transferId}`);
+	}
+
+	// Updated Transaction endpoints with account support
+	async assignTransactionToAccount(transactionId: string, accountId: string) {
+		return this.client.put(`/transactions/${transactionId}/assign-account`, {}, {
+			params: { account_id: accountId }
+		});
+	}
+
+	async bulkAssignAccount(transactionIds: string[], accountId: string) {
+		return this.client.post('/transactions/bulk-assign-account', {
+			transaction_ids: transactionIds,
+			account_id: accountId,
+		});
+	}
+
+	async getUnassignedTransactions(limit: number = 100) {
+		return this.client.get('/transactions/unassigned-accounts', {
+			params: { limit }
+		});
+	}
+
+	async autoAssignAccounts() {
+		return this.client.post('/transactions/auto-assign-accounts');
+	}
+
+	// Updated upload endpoint with account assignment
+	async uploadCSVWithAccount(file: File, accountId?: string, mappingId?: string) {
+		const formData = new FormData();
+		formData.append('file', file);
+		if (accountId) {
+			formData.append('account_id', accountId);
+		}
+		if (mappingId) {
+			formData.append('mapping_id', mappingId);
+		}
+
+		return this.client.post('/uploads/csv', formData, {
+			headers: { 'Content-Type': 'multipart/form-data' },
+		});
+	}
+
+	// Helper method to get transactions with account filtering
+	async getTransactionsWithAccountFilter(params?: any) {
+		const cleanedParams = this.cleanParams(params);
+		return this.client.get('/transactions/', { params: cleanedParams });
+	}
+
+	async adjustAccountBalance(accountId: string, data: { amount: number; description?: string }) {
+		return this.client.post(`/accounts/${accountId}/adjust-balance`, data);
+	}
+
+	async setAccountBalance(accountId: string, data: { new_balance: number; description?: string }) {
+		return this.client.post(`/accounts/${accountId}/set-balance`, data);
+	}
+
+	async getAccountBalanceHistory(accountId: string, limit: number = 10) {
+		return this.client.get(`/accounts/${accountId}/balance-history?limit=${limit}`);
+	}
 }
 
 export const apiClient = new ApiClient();

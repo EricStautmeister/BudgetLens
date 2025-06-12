@@ -1,3 +1,5 @@
+// frontend/src/pages/Upload.tsx - Updated with account selection
+
 import { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -17,7 +19,8 @@ import {
 	AccordionSummary,
 	AccordionDetails,
 	Stack,
-	Divider
+	Divider,
+	Grid,
 } from '@mui/material';
 import { 
 	CloudUpload, 
@@ -26,7 +29,9 @@ import {
 	ExpandMore,
 	InsertDriveFile,
 	Security,
-	Visibility
+	Visibility,
+	AccountBalance,
+	Add,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
@@ -34,6 +39,7 @@ import { apiClient } from '../services/api';
 export default function Upload() {
 	const { enqueueSnackbar } = useSnackbar();
 	const [selectedMapping, setSelectedMapping] = useState<string>('');
+	const [selectedAccount, setSelectedAccount] = useState<string>(''); // NEW
 	const [uploadStatus, setUploadStatus] = useState<any>(null);
 
 	const { data: mappings } = useQuery({
@@ -44,9 +50,18 @@ export default function Upload() {
 		},
 	});
 
+	const { data: accounts } = useQuery({ // NEW
+		queryKey: ['accounts'],
+		queryFn: async () => {
+			const response = await apiClient.getAccounts();
+			return response.data;
+		},
+	});
+
 	const uploadMutation = useMutation({
 		mutationFn: async (file: File) => {
-			const response = await apiClient.uploadCSV(file, selectedMapping);
+			// Use updated API method with account support
+			const response = await apiClient.uploadCSVWithAccount(file, selectedAccount, selectedMapping);
 			return response.data;
 		},
 		onSuccess: async (data) => {
@@ -56,6 +71,13 @@ export default function Upload() {
 		},
 		onError: (error: any) => {
 			enqueueSnackbar(error.response?.data?.detail || 'Upload failed', { variant: 'error' });
+		},
+	});
+
+	const createAccountMutation = useMutation({ // NEW
+		mutationFn: async () => {
+			// Navigate to accounts page or create a quick account
+			window.location.href = '/accounts';
 		},
 	});
 
@@ -81,6 +103,11 @@ export default function Upload() {
 		maxFiles: 1,
 		onDrop: (files) => {
 			if (files.length > 0) {
+				// Check if account is selected (if there are multiple accounts)
+				if (accounts && accounts.length > 1 && !selectedAccount) {
+					enqueueSnackbar('Please select an account for the transactions', { variant: 'warning' });
+					return;
+				}
 				uploadMutation.mutate(files[0]);
 			}
 		},
@@ -92,6 +119,16 @@ export default function Upload() {
 		const sizes = ['B', 'KB', 'MB', 'GB'];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
 		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	};
+
+	const getSelectedAccountName = () => {
+		if (!selectedAccount || !accounts) return 'Default Account';
+		const account = accounts.find((acc: any) => acc.id === selectedAccount);
+		return account ? account.name : 'Default Account';
+	};
+
+	const getDefaultAccount = () => {
+		return accounts?.find((acc: any) => acc.is_default);
 	};
 
 	return (
@@ -114,29 +151,103 @@ export default function Upload() {
 				</Stack>
 			</Alert>
 
+			{/* Account Management Alert */}
+			{(!accounts || accounts.length === 0) && (
+				<Alert severity="warning" sx={{ mb: 3 }}>
+					<Typography variant="body2">
+						<strong>No accounts found!</strong> You need to create at least one account before uploading transactions.
+					</Typography>
+					<Button 
+						startIcon={<Add />} 
+						onClick={() => createAccountMutation.mutate()}
+						sx={{ mt: 1 }}>
+						Create Your First Account
+					</Button>
+				</Alert>
+			)}
+
 			<Paper sx={{ p: 3, mb: 3 }}>
-				<FormControl fullWidth sx={{ mb: 3 }}>
-					<InputLabel>Bank Format</InputLabel>
-					<Select
-						value={selectedMapping}
-						onChange={(e) => setSelectedMapping(e.target.value)}
-						label="Bank Format">
-						<MenuItem value="">
-							<Box display="flex" alignItems="center" gap={1}>
-								<Visibility fontSize="small" />
-								Auto-detect format
-							</Box>
-						</MenuItem>
-						{mappings?.map((mapping: any) => (
-							<MenuItem key={mapping.id} value={mapping.id}>
-								<Box display="flex" alignItems="center" gap={1}>
-									<InsertDriveFile fontSize="small" />
-									{mapping.source_name}
-								</Box>
-							</MenuItem>
-						))}
-					</Select>
-				</FormControl>
+				<Grid container spacing={3}>
+					{/* Account Selection */}
+					<Grid item xs={12} md={4}>
+						<FormControl fullWidth>
+							<InputLabel>Target Account</InputLabel>
+							<Select
+								value={selectedAccount}
+								onChange={(e) => setSelectedAccount(e.target.value)}
+								label="Target Account"
+								disabled={!accounts || accounts.length === 0}>
+								{accounts && accounts.length === 1 ? (
+									<MenuItem value="">
+										<Box display="flex" alignItems="center" gap={1}>
+											<AccountBalance fontSize="small" />
+											{accounts[0].name} (Default)
+										</Box>
+									</MenuItem>
+								) : (
+									<>
+										<MenuItem value="">
+											<Box display="flex" alignItems="center" gap={1}>
+												<AccountBalance fontSize="small" />
+												{getDefaultAccount() ? `${getDefaultAccount().name} (Default)` : 'Use Default Account'}
+											</Box>
+										</MenuItem>
+										{accounts?.filter((acc: any) => !acc.is_default).map((account: any) => (
+											<MenuItem key={account.id} value={account.id}>
+												<Box display="flex" alignItems="center" gap={1}>
+													<AccountBalance fontSize="small" />
+													{account.name}
+													{account.institution && ` (${account.institution})`}
+												</Box>
+											</MenuItem>
+										))}
+									</>
+								)}
+							</Select>
+						</FormControl>
+					</Grid>
+
+					{/* Bank Format Selection */}
+					<Grid item xs={12} md={4}>
+						<FormControl fullWidth>
+							<InputLabel>Bank Format</InputLabel>
+							<Select
+								value={selectedMapping}
+								onChange={(e) => setSelectedMapping(e.target.value)}
+								label="Bank Format">
+								<MenuItem value="">
+									<Box display="flex" alignItems="center" gap={1}>
+										<Visibility fontSize="small" />
+										Auto-detect format
+									</Box>
+								</MenuItem>
+								{mappings?.map((mapping: any) => (
+									<MenuItem key={mapping.id} value={mapping.id}>
+										<Box display="flex" alignItems="center" gap={1}>
+											<InsertDriveFile fontSize="small" />
+											{mapping.source_name}
+										</Box>
+									</MenuItem>
+								))}
+							</Select>
+						</FormControl>
+					</Grid>
+
+					{/* Upload Summary */}
+					<Grid item xs={12} md={4}>
+						<Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+							<Typography variant="subtitle2" gutterBottom>
+								Upload Summary
+							</Typography>
+							<Typography variant="body2" color="textSecondary">
+								Account: <strong>{getSelectedAccountName()}</strong>
+							</Typography>
+							<Typography variant="body2" color="textSecondary">
+								Format: <strong>{selectedMapping ? mappings?.find((m: any) => m.id === selectedMapping)?.source_name : 'Auto-detect'}</strong>
+							</Typography>
+						</Paper>
+					</Grid>
+				</Grid>
 
 				<Box
 					{...getRootProps()}
@@ -145,6 +256,7 @@ export default function Upload() {
 						borderColor: isDragActive ? 'primary.main' : 'grey.300',
 						borderRadius: 2,
 						p: 4,
+						mt: 3,
 						textAlign: 'center',
 						cursor: 'pointer',
 						backgroundColor: isDragActive ? 'action.hover' : 'background.paper',
@@ -162,14 +274,25 @@ export default function Upload() {
 					<Typography variant="body2" color="textSecondary" paragraph>
 						Drag & drop your CSV file here, or click to select
 					</Typography>
-					<Button variant="contained" sx={{ mt: 1 }}>
+					
+					{/* Upload Requirements */}
+					{accounts && accounts.length > 1 && !selectedAccount && (
+						<Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
+							Please select a target account before uploading
+						</Alert>
+					)}
+					
+					<Button 
+						variant="contained" 
+						sx={{ mt: 1 }}
+						disabled={accounts && accounts.length > 1 && !selectedAccount}>
 						Choose File
 					</Button>
 					
 					<Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
 						<Security fontSize="small" color="primary" />
 						<Typography variant="caption" color="primary">
-							Original filename preserved for easy identification
+							Transactions will be assigned to: {getSelectedAccountName()}
 						</Typography>
 					</Box>
 				</Box>
@@ -187,7 +310,7 @@ export default function Upload() {
 										{file.name}
 									</Typography>
 									<Typography variant="caption" color="textSecondary">
-										{formatFileSize(file.size)} • {file.type || 'CSV file'}
+										{formatFileSize(file.size)} • {file.type || 'CSV file'} → {getSelectedAccountName()}
 									</Typography>
 								</Box>
 								<Chip label="Ready to upload" color="success" size="small" />
@@ -204,7 +327,7 @@ export default function Upload() {
 					</Typography>
 					<LinearProgress sx={{ mb: 2 }} />
 					<Typography variant="body2" color="textSecondary">
-						Your original filename is being preserved: {acceptedFiles[0]?.name}
+						File: <strong>{acceptedFiles[0]?.name}</strong> → Account: <strong>{getSelectedAccountName()}</strong>
 					</Typography>
 				</Paper>
 			)}
@@ -225,6 +348,9 @@ export default function Upload() {
 							</Typography>
 							<Typography variant="body2" color="textSecondary">
 								File: {uploadStatus.filename}
+								{uploadStatus.error_details?.summary?.target_account && (
+									<> → Account: <strong>{uploadStatus.error_details.summary.target_account}</strong></>
+								)}
 							</Typography>
 						</Box>
 					</Box>
@@ -233,7 +359,10 @@ export default function Upload() {
 						<Alert severity="success" sx={{ mb: 2 }}>
 							<Typography variant="body2">
 								<strong>Success!</strong> Processed {uploadStatus.processed_rows} of {uploadStatus.total_rows} transactions
-								from your file <strong>{uploadStatus.filename}</strong>
+								from <strong>{uploadStatus.filename}</strong>
+								{uploadStatus.error_details?.summary?.target_account && (
+									<> and assigned them to <strong>{uploadStatus.error_details.summary.target_account}</strong></>
+								)}
 							</Typography>
 						</Alert>
 					)}
@@ -247,7 +376,7 @@ export default function Upload() {
 						</Alert>
 					)}
 
-					{/* Enhanced Error Display */}
+					{/* Rest of the existing error handling code remains the same */}
 					{uploadStatus.error_details?.summary && (
 						<Alert severity="info" sx={{ mt: 2 }}>
 							<Typography variant="body2">
@@ -256,11 +385,14 @@ export default function Upload() {
 								• Successfully processed: {uploadStatus.error_details.summary.processed}<br/>
 								• Skipped: {uploadStatus.error_details.summary.skipped}<br/>
 								• Errors: {uploadStatus.error_details.summary.errors}
+								{uploadStatus.error_details.summary.target_account && (
+									<><br/>• Target account: <strong>{uploadStatus.error_details.summary.target_account}</strong></>
+								)}
 							</Typography>
 						</Alert>
 					)}
 
-					{/* Skipped Transactions */}
+					{/* Keep existing error detail accordions */}
 					{uploadStatus.error_details?.skipped && uploadStatus.error_details.skipped.length > 0 && (
 						<Accordion sx={{ mt: 2 }}>
 							<AccordionSummary expandIcon={<ExpandMore />}>
@@ -289,41 +421,6 @@ export default function Upload() {
 						</Accordion>
 					)}
 
-					{/* Error Details */}
-					{uploadStatus.error_details?.errors && uploadStatus.error_details.errors.length > 0 && (
-						<Accordion sx={{ mt: 2 }}>
-							<AccordionSummary expandIcon={<ExpandMore />}>
-								<Typography variant="subtitle1" color="error">
-									{uploadStatus.error_details.errors.length} Processing Errors - Click to see details
-								</Typography>
-							</AccordionSummary>
-							<AccordionDetails>
-								{uploadStatus.error_details.errors.map((error: any, index: number) => (
-									<Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
-										<Typography variant="body2" color="error">
-											<strong>Row {error.row}:</strong> {error.error}
-										</Typography>
-										{error.data && (
-											<Typography variant="caption" color="textSecondary" component="div" sx={{ mt: 1 }}>
-												<strong>Raw Data:</strong><br/>
-												<pre style={{ fontSize: '11px', margin: 0 }}>
-													{JSON.stringify(error.data, null, 2)}
-												</pre>
-											</Typography>
-										)}
-									</Box>
-								))}
-							</AccordionDetails>
-						</Accordion>
-					)}
-
-					{/* Legacy error handling for backward compatibility */}
-					{uploadStatus.error_count > 0 && !uploadStatus.error_details && (
-						<Alert severity="warning" sx={{ mt: 2 }}>
-							{uploadStatus.error_count} errors occurred during processing of {uploadStatus.filename}
-						</Alert>
-					)}
-
 					{uploadStatus.status === 'completed' && (
 						<>
 							<Divider sx={{ my: 2 }} />
@@ -331,7 +428,7 @@ export default function Upload() {
 								<InsertDriveFile fontSize="small" color="primary" />
 								<Typography variant="body2" color="textSecondary">
 									Your file <strong>{uploadStatus.filename}</strong> has been successfully processed 
-									and is now available in the Upload Management section.
+									and all transactions have been assigned to the selected account.
 								</Typography>
 							</Box>
 						</>

@@ -17,8 +17,10 @@ async def list_transactions(
     limit: int = Query(100, ge=1, le=1000),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    category_id: Optional[str] = Query(None),  # Changed to str to handle empty strings
-    needs_review: Optional[str] = Query(None),  # Changed to str to handle empty strings
+    category_id: Optional[str] = Query(None),
+    account_id: Optional[str] = Query(None),  # NEW: Filter by account
+    needs_review: Optional[str] = Query(None),
+    exclude_transfers: bool = Query(False, description="Exclude transfer transactions"),  # NEW
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -29,7 +31,15 @@ async def list_transactions(
     if end_date:
         query = query.filter(Transaction.date <= end_date)
     
-    # Handle category_id parameter - convert empty string to None
+    # Handle account_id parameter
+    if account_id and account_id.strip():
+        try:
+            account_uuid = UUID(account_id)
+            query = query.filter(Transaction.account_id == account_uuid)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid account_id format")
+    
+    # Handle category_id parameter
     if category_id and category_id.strip():
         try:
             category_uuid = UUID(category_id)
@@ -37,7 +47,7 @@ async def list_transactions(
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid category_id format")
     
-    # Handle needs_review parameter - convert empty string to None
+    # Handle needs_review parameter
     if needs_review and needs_review.strip():
         if needs_review.lower() in ['true', '1', 'yes']:
             query = query.filter(Transaction.needs_review == True)
@@ -46,9 +56,13 @@ async def list_transactions(
         else:
             raise HTTPException(status_code=422, detail="needs_review must be true or false")
     
+    # NEW: Exclude transfers if requested
+    if exclude_transfers:
+        query = query.filter(Transaction.is_transfer == False)
+    
     transactions = query.order_by(Transaction.date.desc()).offset(skip).limit(limit).all()
     
-    # Enrich with vendor and category names
+    # Enrich with vendor, category, and account names
     result = []
     for trans in transactions:
         trans_dict = TransactionSchema.from_orm(trans).dict()
@@ -56,6 +70,9 @@ async def list_transactions(
             trans_dict["vendor_name"] = trans.vendor.name
         if trans.category:
             trans_dict["category_name"] = trans.category.name
+        if trans.account:  # NEW: Add account name
+            trans_dict["account_name"] = trans.account.name
+            trans_dict["account_type"] = trans.account.account_type.value
         result.append(trans_dict)
     
     return result
@@ -205,3 +222,134 @@ async def bulk_categorize(
     db.commit()
     
     return {"message": f"Updated {updated} transactions"}
+
+@router.put("/{transaction_id}/assign-account")
+async def assign_account(
+    transaction_id: UUID,
+    account_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Assign a transaction to a specific account"""
+    # Verify account belongs to user
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == current_user.id,
+        Account.is_active == True
+    ).first()
+    
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    # Verify transaction belongs to user
+    transaction = db.query(Transaction).filter(
+        Transaction.id == transaction_id,
+        Transaction.user_id == current_user.id
+    ).first()
+    
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # Assign account
+    transaction.account_id = account_id
+    db.commit()
+    
+    return {
+        "message": "Account assigned successfully",
+        "transaction_id": str(transaction_id),
+        "account_id": str(account_id),
+        "account_name": account.name
+    }
+
+@router.post("/bulk-assign-account")
+async def bulk_assign_account(
+    transaction_ids: List[UUID],
+    account_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Assign multiple transactions to an account"""
+    # Verify account belongs to user
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == current_user.id,
+        Account.is_active == True
+    ).first()
+    
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    # Update transactions
+    updated = db.query(Transaction).filter(
+        Transaction.id.in_(transaction_ids),
+        Transaction.user_id == current_user.id
+    ).update({
+        "account_id": account_id
+    }, synchronize_session=False)
+    
+    db.commit()
+    
+    return {
+        "message": f"Assigned {updated} transactions to account",
+        "account_name": account.name,
+        "updated_count": updated
+    }
+
+@router.get("/unassigned-accounts")
+async def get_unassigned_account_transactions(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get transactions that haven't been assigned to an account"""
+    transactions = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.account_id.is_(None)
+    ).order_by(Transaction.date.desc()).limit(limit).all()
+    
+    # Enrich with vendor and category names
+    result = []
+    for trans in transactions:
+        trans_dict = TransactionSchema.from_orm(trans).dict()
+        if trans.vendor:
+            trans_dict["vendor_name"] = trans.vendor.name
+        if trans.category:
+            trans_dict["category_name"] = trans.category.name
+        result.append(trans_dict)
+    
+    return result
+
+@router.post("/auto-assign-accounts")
+async def auto_assign_accounts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Auto-assign transactions to accounts based on source_account field or default account"""
+    account_service = AccountService(db, str(current_user.id))
+    default_account = account_service.get_default_account()
+    
+    if not default_account:
+        raise HTTPException(status_code=400, detail="No default account found. Please create an account first.")
+    
+    # Get unassigned transactions
+    unassigned_transactions = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.account_id.is_(None)
+    ).all()
+    
+    assigned_count = 0
+    
+    for transaction in unassigned_transactions:
+        # For now, assign all to default account
+        # In the future, could add logic to parse source_account field
+        # and match to specific accounts based on account numbers, etc.
+        transaction.account_id = default_account.id
+        assigned_count += 1
+    
+    db.commit()
+    
+    return {
+        "message": f"Auto-assigned {assigned_count} transactions to default account",
+        "default_account": default_account.name,
+        "assigned_count": assigned_count
+    }

@@ -6,6 +6,7 @@ import hashlib
 from sqlalchemy.orm import Session
 from app.db.models import Transaction, CSVMapping, UploadLog
 from app.services.categorization import CategorizationService
+from app.services.account import AccountService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ class CSVProcessor:
         self.db = db
         self.user_id = user_id
         self.categorization_service = CategorizationService(db, user_id)
+        self.account_service = AccountService(db, user_id)  # NEW
     
     def detect_csv_format(self, df: pd.DataFrame) -> Optional[CSVMapping]:
         """Detect CSV format based on column names"""
@@ -142,7 +144,7 @@ class CSVProcessor:
                 return existing_mapping
             raise e
     
-    def process_csv(self, file_path: str, mapping_id: Optional[str] = None, original_filename: Optional[str] = None) -> UploadLog:
+    def process_csv(self, file_path: str, mapping_id: Optional[str] = None, original_filename: Optional[str] = None, account_id: Optional[str] = None) -> UploadLog:
         """Process CSV file and create transactions"""
         # Use original filename if provided, otherwise extract from path
         if original_filename:
@@ -176,7 +178,18 @@ class CSVProcessor:
             if not mapping:
                 raise ValueError("Unable to detect CSV format. Please configure mapping.")
             
+             # NEW: Determine target account
+            target_account = None
+            if account_id:
+                target_account = self.account_service.get_account(account_id)
+                if not target_account:
+                    raise ValueError("Specified account not found")
+            else:
+                # Use default account or create one
+                target_account = self.account_service.ensure_default_account()
+            
             logger.info(f"Using mapping: {mapping.source_name} for file: {filename}")
+            logger.info(f"Assigning transactions to account: {target_account.name}")
             
             # Process transactions
             processed_count = 0
@@ -186,7 +199,7 @@ class CSVProcessor:
             
             for index, row in df.iterrows():
                 try:
-                    result = self._create_transaction_from_row(row, mapping)
+                    result = self._create_transaction_from_row(row, mapping, target_account)
                     if result is None:
                         skipped_count += 1
                         # Log why it was skipped
@@ -264,7 +277,8 @@ class CSVProcessor:
                     "total_rows": len(df),
                     "processed": processed_count,
                     "skipped": skipped_count,
-                    "errors": len(errors)
+                    "errors": len(errors),
+                    "target_account": target_account.name
                 }
             } if (errors or skipped_details) else None
             upload_log.completed_at = datetime.utcnow()
@@ -477,26 +491,26 @@ class CSVProcessor:
         
         return "Unknown reason"
     
-    def _create_transaction_from_row(self, row: pd.Series, mapping: CSVMapping) -> Optional[Transaction]:
+    def _create_transaction_from_row(self, row: pd.Series, mapping: CSVMapping, target_account) -> Optional[Transaction]:
         """Create transaction from CSV row - handles Swiss bank format"""
         col_map = mapping.column_mappings
-        
+    
         try:
             # Extract data with better error handling
             date_str = str(row[col_map['date']]).strip().replace('"', '')
             description = str(row[col_map['description']]).strip().replace('"', '')
-            
+
             # Handle Swiss bank debit/credit columns
             debit_str = str(row.get(col_map.get('debit', ''), '')).strip().replace('"', '')
             credit_str = str(row.get(col_map.get('credit', ''), '')).strip().replace('"', '')
-            
+
             # Skip empty rows or header rows
             if not date_str or date_str in ['nan', 'Date']:
                 return None
-            
+
             if not description or description in ['nan', 'Booking text']:
                 return None
-            
+
             # Parse date
             try:
                 transaction_date = datetime.strptime(date_str, mapping.date_format).date()
@@ -510,10 +524,10 @@ class CSVProcessor:
                         continue
                 else:
                     raise ValueError(f"Unable to parse date: {date_str}")
-            
+
             # Parse amount - Swiss banks often use separate debit/credit columns
             amount = Decimal('0')
-            
+
             if debit_str and debit_str not in ['', 'nan', '""', 'Debit CHF']:
                 # Debit amount (money out) - make negative
                 amount_str = debit_str.replace(',', '').replace(' ', '')
@@ -535,7 +549,7 @@ class CSVProcessor:
             else:
                 # Skip rows with no amount
                 return None
-            
+
             # Check for duplicates
             existing = self.db.query(Transaction).filter(
                 Transaction.user_id == self.user_id,
@@ -543,27 +557,28 @@ class CSVProcessor:
                 Transaction.amount == amount,
                 Transaction.description == description
             ).first()
-            
+
             if existing:
                 return "duplicate"  # Special return value to indicate duplicate
-            
+
             # Create transaction with upload reference
             transaction = Transaction(
                 user_id=self.user_id,
+                account_id=target_account.id,  # FIXED: Changed from account.id to target_account.id
                 date=transaction_date,
                 amount=amount,
                 description=description,
-                source_account="ZKB Account",
                 needs_review=True  # Will be updated by categorization
             )
-            
+
             return transaction
-            
+
         except Exception as e:
             raise ValueError(f"Error processing transaction data: {str(e)}")
-    
-    
-    def _generate_transaction_hash(self, date, amount, description):
-        """Generate hash for duplicate detection"""
-        data = f"{date}{amount}{description}"
-        return hashlib.md5(data.encode()).hexdigest()
+
+
+
+        def _generate_transaction_hash(self, date, amount, description):
+            """Generate hash for duplicate detection"""
+            data = f"{date}{amount}{description}"
+            return hashlib.md5(data.encode()).hexdigest()

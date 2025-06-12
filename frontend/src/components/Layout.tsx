@@ -1,3 +1,5 @@
+// frontend/src/components/Layout.tsx - Updated with account management
+
 import React from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -27,12 +29,16 @@ import {
 	Storage,
 	Psychology,
 	BugReport,
+	SwapHoriz,
+	AccountBalanceWallet,
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
 
 const menuItems = [
 	{ text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
+	{ text: 'Accounts', icon: <AccountBalanceWallet />, path: '/accounts' }, // NEW
+	{ text: 'Transfers', icon: <SwapHoriz />, path: '/transfers' }, // NEW
 	{ text: 'Transactions', icon: <Receipt />, path: '/transactions' },
 	{ text: 'Categories', icon: <Category />, path: '/categories' },
 	{ text: 'Budgets', icon: <AccountBalance />, path: '/budgets' },

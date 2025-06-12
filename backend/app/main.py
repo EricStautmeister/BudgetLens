@@ -30,6 +30,7 @@ def get_cors_origins():
             "http://192.168.10.133:3000",
             # Allow any local network IP on port 3000
             "http://192.168.1.*:3000",   # Common router range
+            "http://192.168.10.*:3000",   # Common router range
             "http://192.168.0.*:3000",   # Common router range  
             "http://10.*.*.*:3000",      # Private network range
             # Or for maximum flexibility in development:
@@ -39,7 +40,7 @@ def get_cors_origins():
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=["*"], #get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

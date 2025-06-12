@@ -1,3 +1,5 @@
+// frontend/src/App.tsx - Updated with new routes
+
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
@@ -10,6 +12,8 @@ import PrivateRoute from './components/PrivateRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import Accounts from './pages/Accounts'; // NEW
+import Transfers from './pages/Transfers'; // NEW
 import Transactions from './pages/Transactions';
 import Categories from './pages/Categories';
 import Budgets from './pages/Budgets';
@@ -74,6 +78,8 @@ function App() {
 									}>
 									<Route index element={<Navigate to="/dashboard" replace />} />
 									<Route path="dashboard" element={<Dashboard />} />
+									<Route path="accounts" element={<Accounts />} /> {/* NEW */}
+									<Route path="transfers" element={<Transfers />} /> {/* NEW */}
 									<Route path="transactions" element={<Transactions />} />
 									<Route path="categories" element={<Categories />} />
 									<Route path="budgets" element={<Budgets />} />
