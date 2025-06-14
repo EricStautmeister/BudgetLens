@@ -19,9 +19,6 @@ class CategoryService:
         default_categories = {
             CategoryType.INCOME: [
                 {"name": "Salary", "is_automatic_deduction": True},
-                {"name": "Freelance Income"},
-                {"name": "Investment Returns"},
-                {"name": "Government Benefits"},
                 {"name": "Other Income"}
             ],
             CategoryType.EXPENSE: [
