@@ -1,4 +1,4 @@
-# backend/app/schemas/transfer.py - Fixed to prevent recursion
+# backend/app/schemas/transfer.py
 
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
@@ -21,7 +21,8 @@ class TransferBase(BaseModel):
         return v
 
 class TransferCreate(TransferBase):
-    pass
+    from_transaction_id: Optional[UUID] = None
+    to_transaction_id: Optional[UUID] = None
 
 class TransferUpdate(BaseModel):
     amount: Optional[Decimal] = Field(None, gt=0)
@@ -36,7 +37,7 @@ class TransferUpdate(BaseModel):
             raise ValueError('amount must be greater than 0')
         return v
 
-# Simple transfer schema without complex relationships
+# Simple transfer schema without complex relationships to avoid recursion
 class Transfer(BaseModel):
     id: UUID
     user_id: UUID
@@ -72,3 +73,33 @@ class TransferMatchRequest(BaseModel):
         if v <= 0:
             raise ValueError('amount must be greater than 0')
         return v
+
+# Transfer suggestion schema
+class TransferSuggestion(BaseModel):
+    from_transaction: Dict[str, Any]
+    to_transaction: Dict[str, Any]
+    confidence: float
+    amount: float
+    date_difference: int
+    matched_rule: Optional[str] = None
+    suggested_reason: Optional[str] = None
+
+# Transfer rule schema for settings
+class TransferRule(BaseModel):
+    id: Optional[str] = None
+    name: str
+    pattern: str
+    enabled: bool = True
+    auto_confirm: bool = False
+    allow_fees: bool = False
+    max_fee_tolerance: float = 0.0
+    description: str = ""
+
+# Transfer settings schema
+class TransferSettings(BaseModel):
+    days_lookback: int = 7
+    amount_tolerance: float = 0.50
+    percentage_tolerance: float = 0.02
+    confidence_threshold: float = 0.85
+    enable_auto_matching: bool = True
+    rules: List[TransferRule] = []
