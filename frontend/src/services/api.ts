@@ -1,4 +1,11 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig, AxiosResponse, AxiosError, AxiosHeaders } from 'axios';
+
+interface RequestConfigWithMetadata extends InternalAxiosRequestConfig {
+	metadata?: {
+		startTime: number;
+	};
+	_retry?: boolean;
+}
 
 // Auto-detect the API URL based on environment
 const getApiBaseUrl = (): string => {
@@ -28,6 +35,8 @@ console.log('API Base URL:', API_BASE_URL); // Debug log
 class ApiClient {
 	private client: AxiosInstance;
 	private refreshingToken: Promise<void> | null = null;
+	private debugMode: boolean = false;
+	private requestCounts: Map<string, { count: number; resetTime: number }> = new Map();
 
 	constructor() {
 		this.client = axios.create({
@@ -40,25 +49,51 @@ class ApiClient {
 
 		// Request interceptor to add auth token
 		this.client.interceptors.request.use(
-			(config) => {
+			(config: InternalAxiosRequestConfig): RequestConfigWithMetadata => {
+				const configWithMetadata = config as RequestConfigWithMetadata;
+
+				// Add rate limiting check
+				if (!this.checkRateLimit(config.url || 'unknown')) {
+					return Promise.reject(new Error('Rate limit exceeded. Please try again later.')) as any;
+				}
+
+				// Add token
 				const token = localStorage.getItem('access_token');
 				if (token) {
-					config.headers.Authorization = `Bearer ${token}`;
+					if (!configWithMetadata.headers) {
+						configWithMetadata.headers = new AxiosHeaders();
+					}
+					configWithMetadata.headers.set('Authorization', `Bearer ${token}`);
 				}
-				return config;
+
+				// Add request timestamp for timeout tracking
+				configWithMetadata.metadata = { startTime: Date.now() };
+
+				return configWithMetadata;
 			},
 			(error) => Promise.reject(error)
 		);
 
 		// Response interceptor to handle token refresh
 		this.client.interceptors.response.use(
-			(response) => response,
-			async (error) => {
-				const originalRequest = error.config;
+			(response: AxiosResponse) => {
+				// Log slow requests
+				const config = response.config as RequestConfigWithMetadata;
+				if (config.metadata) {
+					const duration = Date.now() - config.metadata.startTime;
+					if (duration > 5000) { // 5 seconds
+						console.warn(`Slow request: ${config.url} took ${duration}ms`);
+					}
+				}
+				return response;
+			},
+			async (error: AxiosError) => {
+				const originalRequest = error.config as RequestConfigWithMetadata;
 
-				if (error.response?.status === 401 && !originalRequest._retry) {
+				if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
 					originalRequest._retry = true;
 
+					// Prevent multiple simultaneous refresh attempts
 					if (!this.refreshingToken) {
 						this.refreshingToken = this.refreshToken();
 					}
@@ -68,9 +103,19 @@ class ApiClient {
 						this.refreshingToken = null;
 						return this.client(originalRequest);
 					} catch (refreshError) {
+						this.refreshingToken = null;
 						this.logout();
 						throw refreshError;
 					}
+				}
+
+				// Enhanced error handling
+				if (error.code === 'ECONNABORTED') {
+					throw new Error('Request timeout. Please check your connection and try again.');
+				}
+
+				if (!error.response) {
+					throw new Error('Network error. Please check your connection.');
 				}
 
 				return Promise.reject(error);
@@ -78,9 +123,21 @@ class ApiClient {
 		);
 	}
 
+	enableDebugMode(): void {
+		this.debugMode = true;
+		console.log('API Client debug mode enabled');
+	}
+
+	private debugLog(message: string, data?: any): void {
+		if (this.debugMode) {
+			console.log(`[API Debug] ${message}`, data);
+		}
+	}
+
 	private async refreshToken(): Promise<void> {
 		const refreshToken = localStorage.getItem('refresh_token');
 		if (!refreshToken) {
+			this.logout();
 			throw new Error('No refresh token available');
 		}
 
@@ -90,11 +147,19 @@ class ApiClient {
 			}, {
 				headers: {
 					'Content-Type': 'application/json'
-				}
+				},
+				timeout: 10000 // 10 second timeout
 			});
 
-			localStorage.setItem('access_token', response.data.access_token);
-			localStorage.setItem('refresh_token', response.data.refresh_token);
+			// Validate response
+			if (!response.data.access_token || !response.data.refresh_token) {
+				throw new Error('Invalid response from refresh endpoint');
+			}
+
+			// Use secure storage if available, fallback to localStorage
+			this.secureStore('access_token', response.data.access_token);
+			this.secureStore('refresh_token', response.data.refresh_token);
+
 		} catch (error) {
 			console.error('Token refresh failed:', error);
 			this.logout();
@@ -102,10 +167,50 @@ class ApiClient {
 		}
 	}
 
+	private secureStore(key: string, value: string): void {
+		try {
+			// Basic validation
+			if (!value || typeof value !== 'string') {
+				throw new Error('Invalid token value');
+			}
+
+			// For now, use localStorage but with validation
+			// In production, consider using httpOnly cookies or secure storage
+			localStorage.setItem(key, value);
+		} catch (error) {
+			console.error(`Failed to store ${key}:`, error);
+			// Handle storage failure gracefully
+		}
+	}
+
+	private validateAmount(amount: number): boolean {
+		return !isNaN(amount) && isFinite(amount) && amount >= 0;
+	}
+
+	private sanitizeString(input: string): string {
+		// Basic XSS prevention
+		return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+			.replace(/javascript:/gi, '')
+			.trim();
+	}
+
 	private logout(): void {
-		localStorage.removeItem('access_token');
-		localStorage.removeItem('refresh_token');
-		window.location.href = '/login';
+		try {
+			localStorage.removeItem('access_token');
+			localStorage.removeItem('refresh_token');
+
+			// Clear any cached data
+			if (this.refreshingToken) {
+				this.refreshingToken = null;
+			}
+
+			// Redirect to login
+			window.location.href = '/login';
+		} catch (error) {
+			console.error('Logout failed:', error);
+			// Force redirect even if cleanup fails
+			window.location.href = '/login';
+		}
 	}
 
 	// Helper function to clean query parameters
@@ -121,7 +226,52 @@ class ApiClient {
 			}
 		});
 
+		// Format date objects to YYYY-MM-DD strings for backend compatibility
+		if (cleaned.start_date instanceof Date) {
+			console.log('🔍 FRONTEND DEBUG: Original start_date:', cleaned.start_date);
+			console.log('🔍 FRONTEND DEBUG: start_date toISOString():', cleaned.start_date.toISOString());
+			// Use local date format to avoid timezone issues
+			const year = cleaned.start_date.getFullYear();
+			const month = String(cleaned.start_date.getMonth() + 1).padStart(2, '0');
+			const day = String(cleaned.start_date.getDate()).padStart(2, '0');
+			cleaned.start_date = `${year}-${month}-${day}`;
+			console.log('🔍 FRONTEND DEBUG: Formatted start_date:', cleaned.start_date);
+		}
+		if (cleaned.end_date instanceof Date) {
+			console.log('🔍 FRONTEND DEBUG: Original end_date:', cleaned.end_date);
+			console.log('🔍 FRONTEND DEBUG: end_date toISOString():', cleaned.end_date.toISOString());
+			// Use local date format to avoid timezone issues
+			const year = cleaned.end_date.getFullYear();
+			const month = String(cleaned.end_date.getMonth() + 1).padStart(2, '0');
+			const day = String(cleaned.end_date.getDate()).padStart(2, '0');
+			cleaned.end_date = `${year}-${month}-${day}`;
+			console.log('🔍 FRONTEND DEBUG: Formatted end_date:', cleaned.end_date);
+		}
+
 		return cleaned;
+	}
+
+	private checkRateLimit(endpoint: string, maxRequests: number = 100, windowMs: number = 60000): boolean {
+		const now = Date.now();
+		const key = endpoint;
+		const current = this.requestCounts.get(key) || { count: 0, resetTime: now + windowMs };
+
+		if (now > current.resetTime) {
+			// Reset window
+			current.count = 1;
+			current.resetTime = now + windowMs;
+		} else {
+			current.count++;
+		}
+
+		this.requestCounts.set(key, current);
+
+		if (current.count > maxRequests) {
+			console.warn(`Rate limit exceeded for ${endpoint}`);
+			return false;
+		}
+
+		return true;
 	}
 
 	// Auth endpoints
@@ -242,11 +392,89 @@ class ApiClient {
 
 	// Budget endpoints
 	async getCurrentBudget() {
-		return this.client.get('/budgets/current');
+		try {
+			const response = await this.client.get('/budgets/current');
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching current budget:', error);
+			// Return empty budget structure for new users rather than error
+			if (error.response?.status === 404) {
+				const allCategories = await this.getCategories();
+				// Map categories to empty budget entries
+				const budgetCategories = allCategories.data.map((cat: any) => ({
+					category_id: cat.id,
+					category_name: cat.name,
+					budgeted: 0,
+					spent: 0,
+					remaining: 0,
+					daily_allowance: 0,
+					percentage_used: 0,
+					is_automatic: cat.is_automatic_deduction,
+					is_savings: cat.is_savings
+				}));
+
+				return {
+					data: {
+						period: new Date().toISOString().split('T')[0],
+						categories: budgetCategories,
+						total_budgeted: 0,
+						total_spent: 0,
+						days_remaining: 30
+					}
+				};
+			}
+			throw error;
+		}
 	}
 
 	async getDailyAllowances() {
-		return this.client.get('/budgets/daily-allowances');
+		try {
+			return await this.client.get('/budgets/daily-allowances');
+		} catch (error) {
+			this.debugLog('Error fetching daily allowances:', error);
+			// Return empty array for new users rather than error
+			if (error.response?.status === 404) {
+				return { data: [] };
+			}
+			throw error;
+		}
+	}
+
+	async getBudgetForPeriod(period: string) {
+		try {
+			const response = await this.client.get(`/budgets/period/${period}`);
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching budget for period:', error);
+			throw error;
+		}
+	}
+
+	async getBudgetComparison(currentPeriod: string, comparePeriod: string) {
+		try {
+			const response = await this.client.get('/budgets/comparison', {
+				params: {
+					current_period: currentPeriod,
+					compare_period: comparePeriod
+				}
+			});
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching budget comparison:', error);
+			throw error;
+		}
+	}
+
+	async getBudgetHistory(months: number = 6) {
+		try {
+			const response = await this.client.get('/budgets/history', {
+				params: { months }
+			});
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching budget history:', error);
+			throw error;
+		}
 	}
 
 	async createOrUpdateBudget(period: string, categoryId: string, amount: number) {
@@ -254,6 +482,20 @@ class ApiClient {
 			period,
 			category_id: categoryId,
 			budgeted_amount: amount,
+		});
+	}
+
+	async bulkUpdateBudget(period: string, updates: Array<{ category_id: string, amount: number }>) {
+		return this.client.post('/budgets/bulk-update', {
+			period,
+			updates
+		});
+	}
+
+	async copyBudget(fromPeriod: string, toPeriod: string) {
+		return this.client.post('/budgets/copy', {
+			from_period: fromPeriod,
+			to_period: toPeriod
 		});
 	}
 
@@ -338,10 +580,6 @@ class ApiClient {
 		return this.client.delete(`/accounts/${id}`);
 	}
 
-	async ensureDefaultAccount() {
-		return this.client.post('/accounts/ensure-default');
-	}
-
 	// Transfer Management endpoints
 	async detectTransfers(daysLookback: number = 7) {
 		return this.client.get('/transfers/detect', {
@@ -389,17 +627,42 @@ class ApiClient {
 
 	// Updated upload endpoint with account assignment
 	async uploadCSVWithAccount(file: File, accountId?: string, mappingId?: string) {
+		// Validate file
+		if (!file || file.type !== 'text/csv') {
+			throw new Error('Invalid file type. Only CSV files are allowed.');
+		}
+
+		if (file.size > 10 * 1024 * 1024) { // 10MB limit
+			throw new Error('File too large. Maximum size is 10MB.');
+		}
+
+		// Sanitize filename
+		const sanitizedFilename = this.sanitizeString(file.name);
+
 		const formData = new FormData();
-		formData.append('file', file);
+
+		// Create a new file with sanitized name
+		const sanitizedFile = new File([file], sanitizedFilename, { type: file.type });
+		formData.append('file', sanitizedFile);
+
 		if (accountId) {
+			// Validate UUID format
+			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(accountId)) {
+				throw new Error('Invalid account ID format');
+			}
 			formData.append('account_id', accountId);
 		}
+
 		if (mappingId) {
+			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mappingId)) {
+				throw new Error('Invalid mapping ID format');
+			}
 			formData.append('mapping_id', mappingId);
 		}
 
 		return this.client.post('/uploads/csv', formData, {
 			headers: { 'Content-Type': 'multipart/form-data' },
+			timeout: 60000 // 60 second timeout for file uploads
 		});
 	}
 
@@ -410,15 +673,94 @@ class ApiClient {
 	}
 
 	async adjustAccountBalance(accountId: string, data: { amount: number; description?: string }) {
+		if (!this.validateAmount(Math.abs(data.amount))) {
+			throw new Error('Invalid amount');
+		}
+
+		if (data.description) {
+			data.description = this.sanitizeString(data.description);
+		}
+
 		return this.client.post(`/accounts/${accountId}/adjust-balance`, data);
 	}
 
-	async setAccountBalance(accountId: string, data: { new_balance: number; description?: string }) {
+	async setAccountBalance(accountId: string, data: { new_balance: number; description?: string; as_of_date?: string }) {
+		// Allow negative balances for account balance setting
+		if (isNaN(data.new_balance) || !isFinite(data.new_balance)) {
+			throw new Error('Invalid balance amount');
+		}
+
+		if (data.description) {
+			data.description = this.sanitizeString(data.description);
+		}
+
 		return this.client.post(`/accounts/${accountId}/set-balance`, data);
+	}
+
+	async previewAccountBalance(accountId: string, data: { new_balance: number; as_of_date: string }) {
+		// Allow negative balances for account balance setting
+		if (isNaN(data.new_balance) || !isFinite(data.new_balance)) {
+			throw new Error('Invalid balance amount');
+		}
+
+		return this.client.post(`/accounts/${accountId}/preview-balance`, data);
 	}
 
 	async getAccountBalanceHistory(accountId: string, limit: number = 10) {
 		return this.client.get(`/accounts/${accountId}/balance-history?limit=${limit}`);
+	}
+
+	// General Settings API
+	async getSettings() {
+		return this.client.get('/settings');
+	}
+
+	async saveSettings(settings: any) {
+		return this.client.post('/settings', settings);
+	}
+
+	// Transfer Settings API
+	async getTransferSettings() {
+		return this.client.get('/transfers/settings');
+	}
+
+	async saveTransferSettings(settings: any) {
+		return this.client.post('/transfers/settings', settings);
+	}
+
+	async testTransferRules(settings: any) {
+		return this.client.post('/transfers/test-rules', settings);
+	}
+
+	// Enhanced transfer detection
+	async detectTransfersEnhanced(settings?: any) {
+		return this.client.post('/transfers/detect-enhanced', settings || {});
+	}
+
+	async getTransferSuggestions(limit: number = 5) {
+		return this.client.get('/transfers/suggestions', {
+			params: { limit }
+		});
+	}
+
+	async getBudgetForPeriodGrouped(period: string) {
+		try {
+			const response = await this.client.get(`/budgets/period/${period}/grouped`);
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching grouped budget for period:', error);
+			throw error;
+		}
+	}
+
+	async getCurrentBudgetGrouped() {
+		try {
+			const response = await this.client.get('/budgets/current/grouped');
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching current grouped budget:', error);
+			throw error;
+		}
 	}
 }
 

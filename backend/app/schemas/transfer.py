@@ -90,16 +90,24 @@ class TransferRule(BaseModel):
     name: str
     pattern: str
     enabled: bool = True
-    auto_confirm: bool = False
-    allow_fees: bool = False
-    max_fee_tolerance: float = 0.0
+    auto_confirm: bool = Field(default=False, alias="autoConfirm")
+    allow_fees: bool = Field(default=False, alias="allowFees")
+    max_fee_tolerance: float = Field(default=0.0, alias="maxFeeTolerance")
     description: str = ""
+    
+    class Config:
+        populate_by_name = True
+        allow_population_by_field_name = True
 
 # Transfer settings schema
 class TransferSettings(BaseModel):
-    days_lookback: int = 7
-    amount_tolerance: float = 0.50
-    percentage_tolerance: float = 0.02
-    confidence_threshold: float = 0.85
-    enable_auto_matching: bool = True
+    days_lookback: int = Field(default=7, alias="daysLookback")
+    amount_tolerance: float = Field(default=0.50, alias="amountTolerance")
+    percentage_tolerance: float = Field(default=0.02, alias="percentageTolerance")
+    confidence_threshold: float = Field(default=0.85, alias="confidenceThreshold") 
+    enable_auto_matching: bool = Field(default=True, alias="enableAutoMatching")
     rules: List[TransferRule] = []
+    
+    class Config:
+        populate_by_name = True
+        allow_population_by_field_name = True

@@ -1,4 +1,4 @@
-// frontend/src/pages/Transfers.tsx
+// frontend/src/pages/Transfers.tsx - Fixed data extraction
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -83,11 +83,12 @@ export default function Transfers() {
 	const [isDetecting, setIsDetecting] = useState(false);
 	const [, setSelectedTransfer] = useState<PotentialTransfer | null>(null);
 
+	// FIXED: Extract transfers array from response object
 	const { data: transfers, isLoading } = useQuery<Transfer[]>({
 		queryKey: ['transfers'],
 		queryFn: async () => {
 			const response = await apiClient.getTransfers();
-			return response.data;
+			return response.data.transfers;  // ✅ This returns the actual array
 		},
 	});
 
@@ -172,7 +173,8 @@ export default function Transfers() {
 	};
 
 	const getAccountName = (accountId: string) => {
-		return accounts?.find((acc: any) => acc.id === accountId)?.name || 'Unknown Account';
+		const account = accounts?.find((acc: any) => acc.id === accountId);
+		return account?.name || 'Unknown Account';
 	};
 
 	if (isLoading) {
@@ -241,7 +243,7 @@ export default function Transfers() {
 			</Grid>
 
 			{/* Detection Results */}
-			{detectionResults && detectionResults.potential_transfers.length > 0 && (
+			{detectionResults && detectionResults.potential_transfers && detectionResults.potential_transfers.length > 0 && (
 				<Paper sx={{ p: 3, mb: 3 }}>
 					<Typography variant="h6" gutterBottom>
 						<AutoFixHigh sx={{ mr: 1 }} />
@@ -285,7 +287,7 @@ export default function Transfers() {
 												{transfer.from_transaction.description}
 											</Typography>
 											<Typography variant="body1" color="error" fontWeight="bold">
-												-{formatCurrency(transfer.from_transaction.amount)}
+												-{formatCurrency(Math.abs(transfer.from_transaction.amount))}
 											</Typography>
 										</Paper>
 									</Grid>
@@ -307,7 +309,7 @@ export default function Transfers() {
 												{transfer.to_transaction.description}
 											</Typography>
 											<Typography variant="body1" color="success" fontWeight="bold">
-												+{formatCurrency(transfer.to_transaction.amount)}
+												+{formatCurrency(Math.abs(transfer.to_transaction.amount))}
 											</Typography>
 										</Paper>
 									</Grid>
@@ -346,7 +348,8 @@ export default function Transfers() {
 							</TableRow>
 						</TableHead>
 						<TableBody>
-							{transfers?.map((transfer) => (
+							{/* FIXED: Now using the extracted transfers array */}
+							{transfers && transfers.map && transfers.map((transfer: Transfer) => (
 								<TableRow key={transfer.id}>
 									<TableCell>{format(new Date(transfer.date), 'MMM dd, yyyy')}</TableCell>
 									<TableCell>{transfer.from_account_name}</TableCell>
@@ -384,7 +387,8 @@ export default function Transfers() {
 					</Table>
 				</TableContainer>
 
-				{transfers?.length === 0 && (
+				{/* FIXED: Check the actual transfers array */}
+				{(!transfers || transfers.length === 0) && (
 					<Box p={3} textAlign="center">
 						<SwapHoriz sx={{ fontSize: 48, color: 'action.disabled', mb: 2 }} />
 						<Typography variant="h6" color="textSecondary" gutterBottom>

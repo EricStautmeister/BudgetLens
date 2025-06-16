@@ -156,6 +156,7 @@ class CSVProcessor:
         upload_log = UploadLog(
             user_id=self.user_id,
             filename=filename,
+            original_filename=original_filename or filename,  # Set original_filename to prevent NULL violation
             status="processing"
         )
         self.db.add(upload_log)

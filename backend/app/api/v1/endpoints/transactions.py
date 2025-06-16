@@ -27,6 +27,19 @@ async def list_transactions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Debug log the received parameters
+    logger.info(f"🔍 TRANSACTIONS DEBUG: Received parameters:")
+    logger.info(f"  - start_date: {start_date} (type: {type(start_date)})")
+    logger.info(f"  - end_date: {end_date} (type: {type(end_date)})")
+    logger.info(f"  - skip: {skip}, limit: {limit}")
+    logger.info(f"  - category_id: {category_id}")
+    logger.info(f"  - account_id: {account_id}")
+    logger.info(f"  - needs_review: {needs_review}")
+    logger.info(f"  - exclude_transfers: {exclude_transfers}")
+    
     # Use eager loading to prevent N+1 queries
     query = db.query(Transaction).options(
         joinedload(Transaction.vendor),
@@ -35,8 +48,10 @@ async def list_transactions(
     ).filter(Transaction.user_id == current_user.id)
     
     if start_date:
+        logger.info(f"🔍 TRANSACTIONS DEBUG: Applying start_date filter >= {start_date}")
         query = query.filter(Transaction.date >= start_date)
     if end_date:
+        logger.info(f"🔍 TRANSACTIONS DEBUG: Applying end_date filter <= {end_date}")
         query = query.filter(Transaction.date <= end_date)
     
     # Handle account_id parameter
@@ -68,7 +83,17 @@ async def list_transactions(
     if exclude_transfers:
         query = query.filter(Transaction.is_transfer == False)
     
+    # Debug: Log the final query construction
+    logger.info(f"🔍 TRANSACTIONS DEBUG: About to execute query with date range: {start_date} to {end_date}")
+    
     transactions = query.order_by(Transaction.date.desc()).offset(skip).limit(limit).all()
+    
+    # Debug: Log the results
+    logger.info(f"🔍 TRANSACTIONS DEBUG: Found {len(transactions)} transactions")
+    if transactions:
+        logger.info(f"🔍 TRANSACTIONS DEBUG: Date range of results: {transactions[-1].date} to {transactions[0].date}")
+        for i, trans in enumerate(transactions[:5]):  # Log first 5 transactions
+            logger.info(f"🔍 TRANSACTIONS DEBUG:   Transaction {i+1}: {trans.date} - {trans.description} - Amount: {trans.amount}")
     
     result = []
     for trans in transactions:

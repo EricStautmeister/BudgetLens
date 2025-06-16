@@ -36,6 +36,8 @@ class TransactionInDB(TransactionBase):
 class Transaction(TransactionInDB):
     vendor_name: Optional[str] = None
     category_name: Optional[str] = None
+    account_name: Optional[str] = None
+    account_type: Optional[str] = None
 
 class TransactionFilter(BaseModel):
     start_date: Optional[date] = None

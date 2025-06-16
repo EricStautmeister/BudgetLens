@@ -107,3 +107,23 @@ def validate_resource_exists(
         raise HTTPException(status_code=404, detail=message)
     
     return resource
+
+def validate_rule_patterns(pattern: str) -> bool:
+    """
+    Validate that a rule pattern is a valid regular expression.
+    
+    Args:
+        pattern: Regular expression pattern to validate
+        
+    Returns:
+        True if pattern is valid, False otherwise
+    """
+    if not pattern:
+        return True  # Empty patterns are allowed
+        
+    import re
+    try:
+        re.compile(pattern)
+        return True
+    except re.error:
+        return False

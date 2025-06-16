@@ -10,7 +10,8 @@ from app.api.v1.endpoints import (
     uploads, 
     accounts, 
     transfers,  # Make sure this is included
-    upload_management
+    upload_management,
+    settings
 )
 
 api_router = APIRouter()
@@ -25,3 +26,4 @@ api_router.include_router(vendors.router, prefix="/vendors", tags=["vendors"])
 api_router.include_router(budgets.router, prefix="/budgets", tags=["budgets"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 api_router.include_router(upload_management.router, prefix="/upload-management", tags=["upload-management"])
+api_router.include_router(settings.router, prefix="/settings", tags=["settings"])

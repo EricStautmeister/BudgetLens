@@ -18,6 +18,7 @@ router = APIRouter()
 async def upload_csv(
     file: UploadFile = File(...),
     mapping_id: Optional[str] = Form(None),
+    account_id: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -34,9 +35,9 @@ async def upload_csv(
         tmp_file_path = tmp_file.name
     
     try:
-        # Process CSV with original filename preserved
+        # Process CSV with original filename preserved and account assignment
         processor = CSVProcessor(db, str(current_user.id))
-        upload_log = processor.process_csv(tmp_file_path, mapping_id, original_filename)
+        upload_log = processor.process_csv(tmp_file_path, mapping_id, original_filename, account_id)
         
         return {"upload_id": str(upload_log.id), "status": upload_log.status}
     finally:

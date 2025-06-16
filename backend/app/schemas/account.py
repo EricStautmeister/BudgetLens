@@ -87,6 +87,7 @@ class BalanceAdjustment(BaseModel):
 
 class BalanceUpdate(BaseModel):
     new_balance: Decimal = Field(..., description="New balance to set")
+    as_of_date: Optional[datetime] = Field(None, description="Date the balance was accurate (defaults to today)")
     description: Optional[str] = Field(None, max_length=255, description="Reason for balance update")
 
 # Add to existing Account schema

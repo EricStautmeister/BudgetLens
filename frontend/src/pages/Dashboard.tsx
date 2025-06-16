@@ -9,21 +9,34 @@ import {
   LinearProgress,
   Chip,
   Alert,
+  Button,
+  Skeleton,
+  CircularProgress,
+  Snackbar,
 } from '@mui/material';
 import {
   TrendingUp,
   AccountBalance,
   CalendarToday,
   Warning,
+  Add,
+  Category,
+  PieChart as PieChartIcon,
+  BarChart as BarChartIcon,
 } from '@mui/icons-material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { format } from 'date-fns';
 import { apiClient } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
 export default function Dashboard() {
-  const { data: budget, isLoading: budgetLoading } = useQuery({
+  const navigate = useNavigate();
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  const { data: budget, isLoading: budgetLoading, error: budgetError } = useQuery({
     queryKey: ['currentBudget'],
     queryFn: async () => {
       const response = await apiClient.getCurrentBudget();
@@ -31,7 +44,7 @@ export default function Dashboard() {
     },
   });
 
-  const { data: allowances, isLoading: allowancesLoading } = useQuery({
+  const { data: allowances, isLoading: allowancesLoading, error: allowancesError } = useQuery({
     queryKey: ['dailyAllowances'],
     queryFn: async () => {
       const response = await apiClient.getDailyAllowances();
@@ -39,27 +52,89 @@ export default function Dashboard() {
     },
   });
 
-  const { data: reviewCount } = useQuery({
+  const { data: reviewCount, isLoading: reviewLoading } = useQuery({
     queryKey: ['reviewCount'],
     queryFn: async () => {
       const response = await apiClient.getReviewQueue();
       return response.data.length;
     },
+    initialData: 0,
   });
 
-  if (budgetLoading || allowancesLoading) {
-    return <LinearProgress />;
+  // Show welcome message if first time or no budget data
+  useEffect(() => {
+    if (!budgetLoading && budget) {
+      const hasVisitedDashboard = localStorage.getItem('hasVisitedDashboard');
+      const hasBudgetData = budget.categories?.some((cat: any) => cat.budgeted > 0);
+      const hasCategories = budget.categories && budget.categories.length > 0;
+
+      // Show welcome if:
+      // 1. First visit, OR
+      // 2. No categories exist, OR 
+      // 3. Categories exist but no budget amounts set
+      if (!hasVisitedDashboard || !hasCategories || !hasBudgetData) {
+        setWelcomeOpen(true);
+        localStorage.setItem('hasVisitedDashboard', 'true');
+      }
+    }
+  }, [budgetLoading, budget]);
+
+  // Check if there's any error with data fetching
+  if (budgetError || allowancesError) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          There was an error loading your dashboard data. Please try again later.
+        </Alert>
+        <Button variant="contained" onClick={() => window.location.reload()}>
+          Retry
+        </Button>
+      </Box>
+    );
   }
 
+  // Loading state
+  if (budgetLoading || allowancesLoading) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h4" gutterBottom>Dashboard</Typography>
+        <Grid container spacing={3}>
+          {[1, 2, 3, 4].map((item) => (
+            <Grid item xs={12} md={3} key={item}>
+              <Card>
+                <CardContent>
+                  <Skeleton variant="rectangular" height={20} width="60%" sx={{ mb: 1 }} />
+                  <Skeleton variant="rectangular" height={40} />
+                  <Skeleton variant="rectangular" height={10} width="40%" sx={{ mt: 1 }} />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress />
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 3, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress />
+            </Paper>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  }  // Check if there's any budget data
+  const hasBudgetData = budget?.categories?.some((cat: any) => cat.budgeted > 0);
+
   const pieData = budget?.categories
-    .filter((cat: any) => !cat.is_savings && cat.spent > 0)
+    ?.filter((cat: any) => !cat.is_savings && cat.spent > 0)
     .map((cat: any) => ({
       name: cat.category_name,
       value: cat.spent,
     })) || [];
 
   const barData = budget?.categories
-    .filter((cat: any) => !cat.is_automatic && !cat.is_savings)
+    ?.filter((cat: any) => !cat.is_automatic && !cat.is_savings)
     .map((cat: any) => ({
       name: cat.category_name,
       budget: cat.budgeted,
@@ -70,15 +145,79 @@ export default function Dashboard() {
   const totalSpent = budget?.total_spent || 0;
   const overallPercentage = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
 
+  // Empty state - no budget data or no categories
+  if (!hasBudgetData || !budget?.categories || budget.categories.length === 0) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h4" gutterBottom>Dashboard</Typography>
+
+        <Paper sx={{ p: 4, textAlign: 'center', mb: 3 }}>
+          <Box sx={{ mb: 4 }}>
+            <PieChartIcon sx={{ fontSize: 80, color: 'primary.main', mb: 3 }} />
+            <Typography variant="h4" gutterBottom>Welcome to BudgetLens!</Typography>
+            <Typography variant="h6" color="textSecondary" sx={{ mb: 3 }}>
+              Let's set up your budget to start tracking your finances
+            </Typography>
+            <Typography variant="body1" color="textSecondary" paragraph>
+              Follow these two simple steps to get started:
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, maxWidth: 400, mx: 'auto' }}>
+            <Button
+              variant="contained"
+              fullWidth
+              size="large"
+              startIcon={<Category />}
+              onClick={() => navigate('/categories')}
+              sx={{ py: 1.5 }}
+            >
+              1. Set Up Your Categories
+            </Button>
+
+            <Typography variant="body2" color="textSecondary">Then</Typography>
+
+            <Button
+              variant="contained"
+              color="secondary"
+              fullWidth
+              size="large"
+              startIcon={<Add />}
+              onClick={() => navigate('/budgets')}
+              sx={{ py: 1.5 }}
+            >
+              2. Create Your Budget
+            </Button>
+          </Box>
+
+          <Box sx={{ mt: 4 }}>
+            <Typography variant="body2" color="textSecondary">
+              Need help? Each page includes guidance to help you get started.
+            </Typography>
+          </Box>
+        </Paper>
+
+        {reviewCount > 0 && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            You have {reviewCount} transactions that need review.
+            <Box component="a" href="/review" sx={{ ml: 1 }}>
+              Review now →
+            </Box>
+          </Alert>
+        )}
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ flexGrow: 1 }}>
+    <Box>
       <Typography variant="h4" gutterBottom>
         Dashboard
       </Typography>
 
       {reviewCount > 0 && (
         <Alert severity="warning" sx={{ mb: 3 }}>
-          You have {reviewCount} transactions that need review. 
+          You have {reviewCount} transactions that need review.
           <Box component="a" href="/review" sx={{ ml: 1 }}>
             Review now →
           </Box>
@@ -101,7 +240,7 @@ export default function Dashboard() {
               </Typography>
               <LinearProgress
                 variant="determinate"
-                value={overallPercentage}
+                value={Math.min(overallPercentage, 100)}
                 sx={{ mt: 2 }}
                 color={overallPercentage > 90 ? 'error' : 'primary'}
               />
@@ -175,21 +314,36 @@ export default function Dashboard() {
             <Typography variant="h6" gutterBottom>
               Daily Allowances
             </Typography>
-            {allowances?.map((allowance: any, index: number) => (
-              <Box key={index} sx={{ mb: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body1">{allowance.category}</Typography>
-                  <Chip
-                    label={`$${allowance.daily_allowance.toFixed(2)}/day`}
-                    color={allowance.daily_allowance > 0 ? 'success' : 'error'}
-                    size="small"
-                  />
+            {allowances && allowances.length > 0 ? (
+              allowances.map((allowance: any, index: number) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body1">{allowance.category}</Typography>
+                    <Chip
+                      label={`$${allowance.daily_allowance.toFixed(2)}/day`}
+                      color={allowance.daily_allowance > 0 ? 'success' : 'error'}
+                      size="small"
+                    />
+                  </Box>
+                  <Typography variant="caption" color="textSecondary">
+                    ${allowance.total_remaining.toFixed(2)} total remaining
+                  </Typography>
                 </Box>
-                <Typography variant="caption" color="textSecondary">
-                  ${allowance.total_remaining.toFixed(2)} total remaining
+              ))
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="textSecondary">
+                  No daily allowances available. Set up your budget to see daily spending targets.
                 </Typography>
+                <Button
+                  variant="text"
+                  onClick={() => navigate('/budgets')}
+                  sx={{ mt: 1 }}
+                >
+                  Set Up Budget
+                </Button>
               </Box>
-            ))}
+            )}
           </Paper>
         </Grid>
 
@@ -199,25 +353,33 @@ export default function Dashboard() {
             <Typography variant="h6" gutterBottom>
               Spending by Category
             </Typography>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {pieData.map((index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: any) => `$${value.toFixed(2)}`} />
-              </PieChart>
-            </ResponsiveContainer>
+            {pieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: any) => `$${value.toFixed(2)}`} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="textSecondary">
+                  No spending data available yet. Transactions will appear here once they're categorized.
+                </Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
 
@@ -227,19 +389,40 @@ export default function Dashboard() {
             <Typography variant="h6" gutterBottom>
               Budget vs Actual Spending
             </Typography>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={barData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value: any) => `$${value.toFixed(2)}`} />
-                <Bar dataKey="budget" fill="#82ca9d" name="Budget" />
-                <Bar dataKey="spent" fill="#8884d8" name="Spent" />
-              </BarChart>
-            </ResponsiveContainer>
+            {barData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={barData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip formatter={(value: any) => `$${value.toFixed(2)}`} />
+                  <Bar dataKey="budget" fill="#82ca9d" name="Budget" />
+                  <Bar dataKey="spent" fill="#8884d8" name="Spent" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="textSecondary">
+                  No data available for comparison. Add budget categories and track spending to see this chart.
+                </Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Welcome Snackbar */}
+      <Snackbar
+        open={welcomeOpen}
+        onClose={() => setWelcomeOpen(false)}
+        message="Welcome to BudgetLens! Set up your budget categories to get started."
+        action={
+          <Button color="inherit" onClick={() => navigate('/budgets')}>
+            Set Up Budget
+          </Button>
+        }
+        autoHideDuration={6000}
+      />
     </Box>
   );
 }

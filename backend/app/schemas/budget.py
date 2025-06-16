@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from decimal import Decimal
 from datetime import date
 from uuid import UUID
+from typing import List
 
 class BudgetPeriodCreate(BaseModel):
     period: date
@@ -10,6 +11,14 @@ class BudgetPeriodCreate(BaseModel):
 
 class BudgetPeriodUpdate(BaseModel):
     budgeted_amount: Decimal
+
+class BudgetCategoryUpdate(BaseModel):
+    category_id: str
+    amount: Decimal
+
+class BudgetBulkUpdate(BaseModel):
+    period: date
+    updates: List[BudgetCategoryUpdate]
 
 class BudgetPeriod(BaseModel):
     id: UUID

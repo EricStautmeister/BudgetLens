@@ -101,12 +101,30 @@ class AccountService:
     
     def get_account_balance(self, account_id: str) -> Decimal:
         """Calculate current account balance"""
+        logger.info(f"🏦 ACCOUNT BALANCE DEBUG: Calculating balance for account {account_id}")
+        
+        # Get all transactions for this account for debugging
+        all_transactions = self.db.query(Transaction).filter(
+            Transaction.account_id == account_id,
+            Transaction.user_id == self.user_id
+        ).order_by(Transaction.date.desc()).limit(10).all()
+        
+        logger.info(f"🏦 ACCOUNT BALANCE DEBUG: Found {len(all_transactions)} recent transactions")
+        for i, trans in enumerate(all_transactions, 1):
+            category_name = trans.category.name if trans.category else "Uncategorized"
+            category_type = trans.category.category_type.value if trans.category else "UNKNOWN"
+            logger.info(f"  {i}. {trans.date} | Amount: ${trans.amount} | Category: {category_name} ({category_type}) | Desc: {trans.description[:50]}")
+        
+        # Calculate total balance
         result = self.db.query(func.sum(Transaction.amount)).filter(
             Transaction.account_id == account_id,
             Transaction.user_id == self.user_id
         ).scalar()
         
-        return result or Decimal('0.00')
+        balance = result or Decimal('0.00')
+        logger.info(f"🏦 ACCOUNT BALANCE DEBUG: Calculated balance = ${balance}")
+        
+        return balance
     
     def get_account_transaction_count(self, account_id: str) -> int:
         """Get transaction count for account"""
@@ -203,26 +221,36 @@ class AccountService:
         logger.info(f"Adjusted balance for account {account.name} by {adjustment.amount}")
         return transaction
 
-    def set_account_balance(self, account_id: str, balance_update: BalanceUpdate) -> Optional[Transaction]:
-        """Set account balance to a specific amount by calculating the difference"""
+    def set_account_balance(self, account_id: str, new_balance: Decimal, description: Optional[str] = None, as_of_date: Optional[date] = None) -> Optional[Transaction]:
+        """Set account balance to a specific amount as of a specific date"""
         account = self.get_account(account_id)
         if not account:
             return None
 
-        current_balance = self.get_account_balance(account_id)
-        adjustment_amount = balance_update.new_balance - current_balance
+        # Use provided date or default to today
+        if as_of_date is None:
+            as_of_date = datetime.now().date()
+        
+        logger.info(f"🏦 BALANCE SET: Setting balance for {account.name} to ${new_balance} as of {as_of_date}")
+
+        # Calculate current balance as of the specified date
+        balance_as_of_date = self.get_account_balance_as_of_date(account_id, as_of_date)
+        adjustment_amount = new_balance - balance_as_of_date
+
+        logger.info(f"🏦 BALANCE SET: Balance as of {as_of_date} was ${balance_as_of_date}, adjustment needed: ${adjustment_amount}")
 
         if adjustment_amount == 0:
-            logger.info(f"No adjustment needed for account {account.name} - already at target balance")
+            logger.info(f"No adjustment needed for account {account.name} - already at target balance as of {as_of_date}")
             return None
 
-        # Create adjustment transaction
-        description = balance_update.description or f"Balance set to {balance_update.new_balance} for {account.name}"
+        # Create adjustment transaction dated on the as_of_date
+        if description is None:
+            description = f"Balance set to {new_balance} as of {as_of_date}"
 
         transaction = Transaction(
             user_id=self.user_id,
             account_id=account_id,
-            date=datetime.now().date(),
+            date=as_of_date,  # Use the as_of_date instead of today
             amount=adjustment_amount,
             description=description,
             category_id=None,
@@ -235,8 +263,24 @@ class AccountService:
         self.db.commit()
         self.db.refresh(transaction)
 
-        logger.info(f"Set balance for account {account.name} to {balance_update.new_balance} (adjustment: {adjustment_amount})")
+        # Calculate what the current balance will be after this adjustment
+        current_balance_after = self.get_account_balance(account_id)
+        logger.info(f"🏦 BALANCE SET: Current balance after adjustment: ${current_balance_after}")
+
+        logger.info(f"Set balance for account {account.name} to {new_balance} as of {as_of_date} (adjustment: {adjustment_amount})")
         return transaction
+
+    def get_account_balance_as_of_date(self, account_id: str, as_of_date: date) -> Decimal:
+        """Calculate account balance as of a specific date"""
+        result = self.db.query(func.sum(Transaction.amount)).filter(
+            Transaction.account_id == account_id,
+            Transaction.user_id == self.user_id,
+            Transaction.date <= as_of_date
+        ).scalar()
+        
+        balance = result or Decimal('0.00')
+        logger.debug(f"🏦 Balance for account {account_id} as of {as_of_date}: ${balance}")
+        return balance
 
     def get_account_balance_history(self, account_id: str, limit: int = 10) -> List[Dict]:
         """Get recent balance-affecting transactions for an account"""
