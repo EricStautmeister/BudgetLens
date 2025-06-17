@@ -312,6 +312,21 @@ class ApiClient {
 		return this.client.get(`/transactions/${transactionId}/vendor-suggestions`);
 	}
 
+	// New intelligent vendor suggestion methods
+	async getIntelligentVendorSuggestions(description: string, limit: number = 5) {
+		return this.client.get(`/vendors/suggest`, {
+			params: { description, limit }
+		});
+	}
+
+	async getVendorHierarchyAnalysis() {
+		return this.client.get(`/vendors/hierarchy-analysis`);
+	}
+
+	async getComprehensiveVendorSuggestion(description: string) {
+		return this.client.post(`/vendors/comprehensive-suggestion`, { description });
+	}
+
 	async getLearnedPatterns() {
 		return this.client.get(`/transactions/patterns`);
 	}
@@ -391,9 +406,16 @@ class ApiClient {
 	}
 
 	// Budget endpoints
-	async getCurrentBudget() {
+	async getCurrentBudget(params?: { month?: string }) {
 		try {
-			const response = await this.client.get('/budgets/current');
+			let url = '/budgets/current';
+			if (params?.month) {
+				// Use the period endpoint for specific months
+				// Convert YYYY-MM to YYYY-MM-01 for the date parameter
+				const periodDate = `${params.month}-01`;
+				url = `/budgets/period/${periodDate}`;
+			}
+			const response = await this.client.get(url);
 			return response;
 		} catch (error) {
 			this.debugLog('Error fetching current budget:', error);
@@ -427,9 +449,13 @@ class ApiClient {
 		}
 	}
 
-	async getDailyAllowances() {
+	async getDailyAllowances(params?: { month?: string }) {
 		try {
-			return await this.client.get('/budgets/daily-allowances');
+			let url = '/budgets/daily-allowances';
+			if (params?.month) {
+				url = `/budgets/daily-allowances?month=${params.month}`;
+			}
+			return await this.client.get(url);
 		} catch (error) {
 			this.debugLog('Error fetching daily allowances:', error);
 			// Return empty array for new users rather than error

@@ -121,7 +121,7 @@ export default function Categories() {
 	});
 
 	// Get category stats
-	const {  } = useQuery({
+	const { } = useQuery({
 		queryKey: ['categoryStats'],
 		queryFn: async () => {
 			const response = await apiClient.getCategoryStats();
@@ -170,8 +170,8 @@ export default function Categories() {
 			queryClient.invalidateQueries({ queryKey: ['categoryStats'] });
 			queryClient.invalidateQueries({ queryKey: ['categories'] });
 			queryClient.invalidateQueries({ queryKey: ['transactions'] });
-			
-			const message = data.data.affected_transactions > 0 
+
+			const message = data.data.affected_transactions > 0
 				? `Category deleted and ${data.data.affected_transactions} transactions marked for review`
 				: 'Category deleted successfully';
 			enqueueSnackbar(message, { variant: 'success' });
@@ -243,7 +243,7 @@ export default function Categories() {
 
 	const handleSubmit = () => {
 		const submitData = { ...formData };
-		
+
 		// Clean up parent_category_id
 		if (!submitData.parent_category_id) {
 			delete submitData.parent_category_id;
@@ -272,7 +272,7 @@ export default function Categories() {
 		const message = hasTransactions
 			? `Delete "${category.name}"? This will mark ${category.transaction_count} transactions for review.`
 			: `Delete "${category.name}"?`;
-		
+
 		if (confirm(message)) {
 			deleteMutation.mutate({ id: category.id, force: hasTransactions });
 		}
@@ -280,7 +280,7 @@ export default function Categories() {
 
 	const getPotentialParents = (categoryType: CategoryType): Category[] => {
 		if (!hierarchy) return [];
-		
+
 		const categoriesOfType = hierarchy[categoryType.toLowerCase() as keyof CategoryHierarchy] || [];
 		return categoriesOfType.filter(cat => !cat.parent_category_id); // Only root categories as parents
 	};
@@ -294,7 +294,7 @@ export default function Categories() {
 		// Group by parent
 		const parentCategories = categories.filter(cat => !cat.parent_category_id);
 		const childCategories = categories.filter(cat => cat.parent_category_id);
-		
+
 		return (
 			<Accordion defaultExpanded>
 				<AccordionSummary expandIcon={<ExpandMore />}>
@@ -346,81 +346,140 @@ export default function Categories() {
 						{/* Parent categories */}
 						{parentCategories.map((category) => {
 							const children = childCategories.filter(child => child.parent_category_id === category.id);
-							
+							const totalTransactions = category.transaction_count + children.reduce((sum, child) => sum + child.transaction_count, 0);
+
 							return (
 								<Box key={category.id} sx={{ mb: 2 }}>
-									<Paper variant="outlined" sx={{ p: 2 }}>
-										<Box display="flex" justifyContent="space-between" alignItems="center">
-											<Box display="flex" alignItems="center" gap={2}>
-												<Typography variant="subtitle1" fontWeight="medium">
-													{category.name}
-												</Typography>
-												<Chip 
-													label={`${category.transaction_count} transactions`} 
-													size="small" 
-													variant="outlined" 
-												/>
-												{category.is_automatic_deduction && (
-													<Chip label="Auto" size="small" color="secondary" />
-												)}
-												{!category.allow_auto_learning && (
-													<Tooltip title="Auto-learning disabled">
-														<Chip label="No Learning" size="small" color="warning" />
-													</Tooltip>
-												)}
-											</Box>
-											<Box>
-												<IconButton onClick={() => handleOpen(category)} size="small">
-													<Edit />
-												</IconButton>
-												<IconButton 
-													onClick={() => handleDelete(category)} 
-													size="small" 
-													color="error"
-													disabled={children.length > 0}>
-													<Delete />
-												</IconButton>
-											</Box>
-										</Box>
-
-										{/* Child categories */}
-										{children.length > 0 && (
-											<Box sx={{ mt: 2, pl: 2 }}>
-												{children.map((child) => (
-													<Box key={child.id} sx={{ mb: 1 }}>
-														<Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.50' }}>
-															<Box display="flex" justifyContent="space-between" alignItems="center">
-																<Box display="flex" alignItems="center" gap={1}>
-																	<Typography variant="body2">
-																		↳ {child.name}
-																	</Typography>
-																	<Chip 
-																		label={child.transaction_count} 
-																		size="small" 
-																		variant="outlined" 
-																	/>
-																	{!child.allow_auto_learning && (
-																		<Chip label="No Learning" size="small" color="warning" />
-																	)}
-																</Box>
-																<Box>
-																	<IconButton onClick={() => handleOpen(child)} size="small">
-																		<Edit />
-																	</IconButton>
-																	<IconButton 
-																		onClick={() => handleDelete(child)} 
-																		size="small" 
-																		color="error">
-																		<Delete />
-																	</IconButton>
-																</Box>
-															</Box>
-														</Paper>
+									{children.length > 0 ? (
+										/* Parent with children - render as accordion */
+										<Accordion defaultExpanded={false}>
+											<AccordionSummary expandIcon={<ExpandMore />}>
+												<Box display="flex" justifyContent="space-between" alignItems="center" width="100%" sx={{ pr: 1 }}>
+													<Box display="flex" alignItems="center" gap={2}>
+														<Typography variant="subtitle1" fontWeight="medium">
+															{category.name}
+														</Typography>
+														<Chip
+															label={`${totalTransactions} transactions`}
+															size="small"
+															variant="outlined"
+														/>
+														<Chip
+															label={`${children.length} subcategories`}
+															size="small"
+															color={categoryTypeColors[type]}
+														/>
+														{category.is_automatic_deduction && (
+															<Chip label="Auto" size="small" color="secondary" />
+														)}
+														{!category.allow_auto_learning && (
+															<Tooltip title="Auto-learning disabled">
+																<Chip label="No Learning" size="small" color="warning" />
+															</Tooltip>
+														)}
 													</Box>
-												))}
+													<Box onClick={(e) => e.stopPropagation()}>
+														<IconButton onClick={() => handleOpen(category)} size="small">
+															<Edit />
+														</IconButton>
+														<IconButton
+															onClick={() => handleDelete(category)}
+															size="small"
+															color="error"
+															disabled={children.length > 0}>
+															<Delete />
+														</IconButton>
+													</Box>
+												</Box>
+											</AccordionSummary>
+											<AccordionDetails>
+												<Box sx={{ pl: 2 }}>
+													{/* Parent category direct stats */}
+													{category.transaction_count > 0 && (
+														<Box sx={{ mb: 2 }}>
+															<Paper variant="outlined" sx={{ p: 1, bgcolor: 'action.hover' }}>
+																<Typography variant="body2" color="text.secondary">
+																	Direct transactions: {category.transaction_count}
+																</Typography>
+															</Paper>
+														</Box>
+													)}
+
+													{/* Child categories */}
+													{children.map((child) => (
+														<Box key={child.id} sx={{ mb: 1 }}>
+															<Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
+																<Box display="flex" justifyContent="space-between" alignItems="center">
+																	<Box display="flex" alignItems="center" gap={1}>
+																		<Typography variant="body2" color="text.primary">
+																			↳ {child.name}
+																		</Typography>
+																		<Chip
+																			label={`${child.transaction_count} transactions`}
+																			size="small"
+																			variant="outlined"
+																		/>
+																		{child.is_automatic_deduction && (
+																			<Chip label="Auto" size="small" color="secondary" />
+																		)}
+																		{!child.allow_auto_learning && (
+																			<Chip label="No Learning" size="small" color="warning" />
+																		)}
+																	</Box>
+																	<Box>
+																		<IconButton onClick={() => handleOpen(child)} size="small">
+																			<Edit />
+																		</IconButton>
+																		<IconButton
+																			onClick={() => handleDelete(child)}
+																			size="small"
+																			color="error">
+																			<Delete />
+																		</IconButton>
+																	</Box>
+																</Box>
+															</Paper>
+														</Box>
+													))}
+												</Box>
+											</AccordionDetails>
+										</Accordion>
+									) : (
+										/* Parent without children - render as simple paper */
+										<Paper variant="outlined" sx={{ p: 2 }}>
+											<Box display="flex" justifyContent="space-between" alignItems="center">
+												<Box display="flex" alignItems="center" gap={2}>
+													<Typography variant="subtitle1" fontWeight="medium">
+														{category.name}
+													</Typography>
+													<Chip
+														label={`${category.transaction_count} transactions`}
+														size="small"
+														variant="outlined"
+													/>
+													{category.is_automatic_deduction && (
+														<Chip label="Auto" size="small" color="secondary" />
+													)}
+													{!category.allow_auto_learning && (
+														<Tooltip title="Auto-learning disabled">
+															<Chip label="No Learning" size="small" color="warning" />
+														</Tooltip>
+													)}
+												</Box>
+												<Box>
+													<IconButton onClick={() => handleOpen(category)} size="small">
+														<Edit />
+													</IconButton>
+													<IconButton
+														onClick={() => handleDelete(category)}
+														size="small"
+														color="error">
+														<Delete />
+													</IconButton>
+												</Box>
 											</Box>
-										)}
-									</Paper>
+										</Paper>
+									)}
 								</Box>
 							);
 						})}
@@ -431,11 +490,14 @@ export default function Categories() {
 								<Box display="flex" justifyContent="space-between" alignItems="center">
 									<Box display="flex" alignItems="center" gap={2}>
 										<Typography variant="body1">{category.name}</Typography>
-										<Chip 
-											label={`${category.transaction_count} transactions`} 
-											size="small" 
-											variant="outlined" 
+										<Chip
+											label={`${category.transaction_count} transactions`}
+											size="small"
+											variant="outlined"
 										/>
+										{category.is_automatic_deduction && (
+											<Chip label="Auto" size="small" color="secondary" />
+										)}
 										{!category.allow_auto_learning && (
 											<Chip label="No Learning" size="small" color="warning" />
 										)}
@@ -478,8 +540,8 @@ export default function Categories() {
 										</Typography>
 									</Box>
 								)}
-								<Button 
-									size="small" 
+								<Button
+									size="small"
 									variant="contained"
 									color="warning"
 									startIcon={<RateReview />}
@@ -511,8 +573,8 @@ export default function Categories() {
 						Add Category
 					</Button>
 					{getTotalCategories() === 0 && (
-						<Button 
-							variant="contained" 
+						<Button
+							variant="contained"
 							onClick={() => initDefaultsMutation.mutate()}
 							disabled={initDefaultsMutation.isPending}>
 							Initialize Defaults
@@ -647,8 +709,8 @@ export default function Categories() {
 							</Typography>
 						</Box>
 						<Typography variant="body2">
-							Create these categories for vendors where the vendor name alone doesn't tell you 
-							what type of expense it is. This prevents the system from incorrectly auto-categorizing 
+							Create these categories for vendors where the vendor name alone doesn't tell you
+							what type of expense it is. This prevents the system from incorrectly auto-categorizing
 							future transactions from these generic vendors.
 						</Typography>
 					</Alert>
@@ -756,8 +818,8 @@ export default function Categories() {
 										value={formData.category_type}
 										label="Category Type"
 										onChange={(e) =>
-											setFormData({ 
-												...formData, 
+											setFormData({
+												...formData,
 												category_type: e.target.value as CategoryType,
 												// Reset parent when changing type
 												parent_category_id: '',
@@ -849,8 +911,8 @@ export default function Categories() {
 										</Typography>
 									</Box>
 									<Typography variant="body2" paragraph>
-										Manual Review categories are designed for generic vendors where the vendor name alone 
-										doesn't indicate the expense type. These categories automatically disable auto-learning 
+										Manual Review categories are designed for generic vendors where the vendor name alone
+										doesn't indicate the expense type. These categories automatically disable auto-learning
 										to prevent incorrect pattern matching.
 									</Typography>
 									<Typography variant="body2" fontWeight="bold" gutterBottom>
@@ -871,7 +933,7 @@ export default function Categories() {
 										</Typography>
 									</Box>
 									<Typography variant="body2">
-										💡 <strong>Tip:</strong> After categorizing transactions from these vendors, 
+										💡 <strong>Tip:</strong> After categorizing transactions from these vendors,
 										you can manually recategorize them to more specific expense categories.
 									</Typography>
 								</Box>
@@ -884,7 +946,7 @@ export default function Categories() {
 								<Box display="flex" alignItems="center" gap={1}>
 									<Psychology />
 									<Typography variant="body2">
-										<strong>Smart Learning Enabled:</strong> When you categorize transactions to this category, 
+										<strong>Smart Learning Enabled:</strong> When you categorize transactions to this category,
 										the system will learn vendor patterns and automatically categorize similar transactions in the future.
 									</Typography>
 								</Box>

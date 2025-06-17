@@ -377,7 +377,43 @@ class CategorizationService:
         return best_match, best_score
     
     def get_vendor_suggestions(self, description: str, limit: int = 5) -> List[Dict]:
-        """Get vendor suggestions for a transaction description"""
+        """Get vendor suggestions for a transaction description using intelligent grouping"""
+        # Try intelligent vendor grouping first
+        try:
+            from app.services.vendor_intelligence import VendorIntelligenceService
+            intelligence_service = VendorIntelligenceService(self.db, self.user_id)
+            
+            intelligent_suggestions = intelligence_service.suggest_intelligent_vendor_grouping(description, limit)
+            
+            if intelligent_suggestions:
+                # Convert to expected format and add legacy fields
+                converted_suggestions = []
+                for suggestion in intelligent_suggestions:
+                    converted_suggestions.append({
+                        "vendor_id": suggestion["vendor_id"],
+                        "vendor_name": suggestion["vendor_name"],
+                        "category_id": suggestion["category_id"],
+                        "similarity": suggestion["similarity"],
+                        "normalized_pattern": suggestion.get("matching_ngram", ""),
+                        "matching_pattern": suggestion.get("matching_ngram", ""),
+                        "extracted_vendor": suggestion["extracted_vendor"],
+                        "allows_learning": True,  # Assume true for intelligent matches
+                        # Additional intelligent fields
+                        "combined_confidence": suggestion["combined_confidence"],
+                        "ngram_confidence": suggestion["ngram_confidence"],
+                        "match_type": suggestion["match_type"],
+                        "ngram_type": suggestion["ngram_type"],
+                        "is_hierarchical_match": suggestion["is_hierarchical_match"],
+                        "potential_siblings": suggestion.get("potential_siblings", []),
+                        "is_part_of_group": suggestion.get("is_part_of_group", False)
+                    })
+                
+                return converted_suggestions
+        
+        except Exception as e:
+            logger.warning(f"Intelligent vendor grouping failed, falling back to legacy: {e}")
+        
+        # Fallback to legacy method
         vendor_text = self.extract_vendor_from_description(description)
         normalized = self.normalize_vendor(vendor_text)
         
@@ -409,7 +445,15 @@ class CategorizationService:
                     "normalized_pattern": normalized,
                     "matching_pattern": matching_pattern,
                     "extracted_vendor": vendor_text,
-                    "allows_learning": vendor.allow_auto_learning
+                    "allows_learning": vendor.allow_auto_learning,
+                    # Default values for intelligent fields
+                    "combined_confidence": best_similarity,
+                    "ngram_confidence": 0.5,
+                    "match_type": "pattern",
+                    "ngram_type": "legacy",
+                    "is_hierarchical_match": False,
+                    "potential_siblings": [],
+                    "is_part_of_group": False
                 })
         
         # Sort by similarity and return top matches

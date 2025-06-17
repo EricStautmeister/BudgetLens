@@ -286,7 +286,16 @@ export default function Layout() {
 
 	const isMenuItemActive = (path?: string) => {
 		if (!path) return false;
-		return location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
+		// Exact match for most paths
+		if (location.pathname === path) return true;
+
+		// Special handling for paths that might have subpaths but shouldn't match siblings
+		// Only allow startsWith for paths that are genuinely parent paths
+		if (path !== '/' && path !== '/upload') {
+			return location.pathname.startsWith(path + '/');
+		}
+
+		return false;
 	};
 
 	// Show badge if there are pending reviews

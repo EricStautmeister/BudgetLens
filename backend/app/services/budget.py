@@ -389,6 +389,19 @@ class BudgetService:
         # Create category lookup from budget data
         budget_category_lookup = {cat["category_id"]: cat for cat in budget_data["categories"]}
         
+        # Helper function to get transaction count for a category
+        def get_transaction_count(category_id: str, period_start: date) -> int:
+            period_end = self._last_day_of_month(period_start)
+            count = self.db.query(Transaction).filter(
+                Transaction.user_id == self.user_id,
+                Transaction.category_id == category_id,
+                Transaction.date >= period_start,
+                Transaction.date <= period_end
+            ).count()
+            return count
+        
+        period_start = period.replace(day=1)
+        
         # Process each parent category
         for parent_cat in parent_categories:
             # Get children categories
@@ -401,18 +414,22 @@ class BudgetService:
                 "is_parent": True,
                 "total_budgeted": Decimal("0.00"),
                 "total_actual": Decimal("0.00"),
+                "total_transaction_count": 0,
                 "children": []
             }
             
             # Add parent category data if it has budget
+            parent_transaction_count = 0
             if str(parent_cat.id) in budget_category_lookup:
                 parent_budget = budget_category_lookup[str(parent_cat.id)]
+                parent_transaction_count = get_transaction_count(str(parent_cat.id), period_start)
                 group.update({
                     "budgeted": parent_budget["budgeted"],
                     "spent": parent_budget["spent"],
                     "remaining": parent_budget["remaining"],
                     "percentage_used": parent_budget["percentage_used"],
-                    "is_over_budget": parent_budget["is_over_budget"]
+                    "is_over_budget": parent_budget["is_over_budget"],
+                    "transaction_count": parent_transaction_count
                 })
                 group["total_budgeted"] += Decimal(str(parent_budget["budgeted"]))
                 group["total_actual"] += Decimal(str(parent_budget["spent"]))
@@ -421,6 +438,7 @@ class BudgetService:
             for child_cat in children:
                 if str(child_cat.id) in budget_category_lookup:
                     child_budget = budget_category_lookup[str(child_cat.id)]
+                    child_transaction_count = get_transaction_count(str(child_cat.id), period_start)
                     child_data = {
                         "category_id": str(child_cat.id),
                         "category_name": child_cat.name,
@@ -431,11 +449,16 @@ class BudgetService:
                         "remaining": child_budget["remaining"],
                         "percentage_used": child_budget["percentage_used"],
                         "is_over_budget": child_budget["is_over_budget"],
-                        "daily_allowance": child_budget["daily_allowance"]
+                        "daily_allowance": child_budget["daily_allowance"],
+                        "transaction_count": child_transaction_count
                     }
                     group["children"].append(child_data)
                     group["total_budgeted"] += Decimal(str(child_budget["budgeted"]))
                     group["total_actual"] += Decimal(str(child_budget["spent"]))
+                    group["total_transaction_count"] += child_transaction_count
+            
+            # Add parent transaction count to total
+            group["total_transaction_count"] += parent_transaction_count
             
             # Convert totals to float
             group["total_budgeted"] = float(group["total_budgeted"])

@@ -27,15 +27,17 @@ import {
 	Alert,
 	Badge,
 } from '@mui/material';
-import { 
-	Category as Store, 
+import {
+	Category as Store,
 	AutoFixHigh,
 	Lightbulb,
-	TrendingUp 
+	TrendingUp,
+	Psychology
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
+import IntelligentVendorSuggestions from '../components/IntelligentVendorSuggestions';
 
 export default function Review() {
 	const queryClient = useQueryClient();
@@ -44,6 +46,7 @@ export default function Review() {
 	const [learnDialog, setLearnDialog] = useState<any>(null);
 	const [newVendorName, setNewVendorName] = useState('');
 	const [suggestionsDialog, setSuggestionsDialog] = useState<any>(null);
+	const [intelligentSuggestionsDialog, setIntelligentSuggestionsDialog] = useState<any>(null);
 	const [learnPatterns, setLearnPatterns] = useState(true);
 
 	const { data: transactions, isLoading } = useQuery({
@@ -88,7 +91,7 @@ export default function Review() {
 			queryClient.invalidateQueries({ queryKey: ['reviewQueue'] });
 			queryClient.invalidateQueries({ queryKey: ['transactions'] });
 			queryClient.invalidateQueries({ queryKey: ['vendors'] });
-			
+
 			if (data.data.similar_transactions_categorized && data.data.similar_transactions_categorized > 0) {
 				enqueueSnackbar(
 					`Transaction categorized! Also auto-categorized ${data.data.similar_transactions_categorized} similar transactions.`,
@@ -182,6 +185,29 @@ export default function Review() {
 			return parts[1].trim();
 		}
 		return description;
+	};
+
+	const handleIntelligentVendorSelect = (vendorId: string, categoryId?: string, vendorName?: string) => {
+		categorizeMutation.mutate({
+			id: intelligentSuggestionsDialog.id,
+			data: {
+				category_id: categoryId,
+				vendor_id: vendorId,
+			},
+			learnPatterns: true
+		});
+		setIntelligentSuggestionsDialog(null);
+		enqueueSnackbar(`Selected vendor: ${vendorName}`, { variant: 'success' });
+	};
+
+	const handleCreateNewVendorFromSuggestion = (vendorName: string) => {
+		setLearnDialog({
+			id: intelligentSuggestionsDialog.id,
+			description: intelligentSuggestionsDialog.description,
+			categoryId: null
+		});
+		setNewVendorName(vendorName);
+		setIntelligentSuggestionsDialog(null);
 	};
 
 	if (isLoading) {
@@ -359,15 +385,31 @@ export default function Review() {
 											<IconButton
 												color="primary"
 												onClick={() =>
+													setIntelligentSuggestionsDialog(transaction)
+												}
+												title="Get intelligent vendor suggestions"
+												sx={{ mr: 1 }}
+											>
+												<Badge
+													badgeContent="Smart"
+													color="secondary"
+													sx={{ '& .MuiBadge-badge': { fontSize: '8px', minWidth: '18px', height: '16px' } }}
+												>
+													<Psychology />
+												</Badge>
+											</IconButton>
+											<IconButton
+												color="primary"
+												onClick={() =>
 													setSuggestionsDialog({
 														id: transaction.id,
 														description: transaction.description,
 													})
 												}
-												title="Get AI suggestions">
-												<Badge 
-													badgeContent="AI" 
-													color="secondary" 
+												title="Get basic AI suggestions">
+												<Badge
+													badgeContent="AI"
+													color="secondary"
 													sx={{ '& .MuiBadge-badge': { fontSize: '9px', minWidth: '16px', height: '16px' } }}
 												>
 													<Lightbulb />
@@ -412,8 +454,8 @@ export default function Review() {
 					{suggestions?.suggestions?.length > 0 ? (
 						<Box sx={{ mt: 2 }}>
 							{suggestions.suggestions.map((suggestion: any, index: number) => (
-								<Paper 
-									key={index} 
+								<Paper
+									key={index}
 									sx={{ p: 2, mb: 1, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
 									onClick={() => handleSuggestionSelect(suggestion)}
 								>
@@ -428,7 +470,7 @@ export default function Review() {
 												Your pattern: {suggestion.normalized_pattern}
 											</Typography>
 										</Box>
-										<Chip 
+										<Chip
 											label={`${(suggestion.similarity * 100).toFixed(0)}% match`}
 											color={suggestion.similarity > 0.8 ? 'success' : 'primary'}
 											size="small"
@@ -471,6 +513,15 @@ export default function Review() {
 					</Button>
 				</DialogActions>
 			</Dialog>
+
+			{/* Intelligent Vendor Suggestions Dialog */}
+			<IntelligentVendorSuggestions
+				open={!!intelligentSuggestionsDialog}
+				onClose={() => setIntelligentSuggestionsDialog(null)}
+				transaction={intelligentSuggestionsDialog}
+				onSelectVendor={handleIntelligentVendorSelect}
+				onCreateNewVendor={handleCreateNewVendorFromSuggestion}
+			/>
 		</Box>
 	);
 }

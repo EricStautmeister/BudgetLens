@@ -13,6 +13,10 @@ import {
   Skeleton,
   CircularProgress,
   Snackbar,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -25,7 +29,7 @@ import {
   BarChart as BarChartIcon,
 } from '@mui/icons-material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns';
 import { apiClient } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
@@ -35,19 +39,35 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 export default function Dashboard() {
   const navigate = useNavigate();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+
+  // Generate month options (last 12 months and next 6 months)
+  const monthOptions = [];
+  for (let i = -12; i <= 6; i++) {
+    const monthDate = i < 0 ? subMonths(new Date(), Math.abs(i)) : addMonths(new Date(), i);
+    monthOptions.push({
+      value: format(monthDate, 'yyyy-MM'),
+      label: format(monthDate, 'MMMM yyyy'),
+      date: monthDate
+    });
+  }
 
   const { data: budget, isLoading: budgetLoading, error: budgetError } = useQuery({
-    queryKey: ['currentBudget'],
+    queryKey: ['currentBudget', format(selectedMonth, 'yyyy-MM')],
     queryFn: async () => {
-      const response = await apiClient.getCurrentBudget();
+      const response = await apiClient.getCurrentBudget({
+        month: format(selectedMonth, 'yyyy-MM')
+      });
       return response.data;
     },
   });
 
   const { data: allowances, isLoading: allowancesLoading, error: allowancesError } = useQuery({
-    queryKey: ['dailyAllowances'],
+    queryKey: ['dailyAllowances', format(selectedMonth, 'yyyy-MM')],
     queryFn: async () => {
-      const response = await apiClient.getDailyAllowances();
+      const response = await apiClient.getDailyAllowances({
+        month: format(selectedMonth, 'yyyy-MM')
+      });
       return response.data;
     },
   });
@@ -211,9 +231,31 @@ export default function Dashboard() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Dashboard
-      </Typography>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4">
+          Dashboard
+        </Typography>
+
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Month</InputLabel>
+          <Select
+            value={format(selectedMonth, 'yyyy-MM')}
+            label="Month"
+            onChange={(e) => {
+              const selectedOption = monthOptions.find(option => option.value === e.target.value);
+              if (selectedOption) {
+                setSelectedMonth(selectedOption.date);
+              }
+            }}
+          >
+            {monthOptions.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
 
       {reviewCount > 0 && (
         <Alert severity="warning" sx={{ mb: 3 }}>
@@ -283,7 +325,7 @@ export default function Dashboard() {
                 {budget?.days_remaining || 0}
               </Typography>
               <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                in {format(new Date(), 'MMMM yyyy')}
+                in {format(selectedMonth, 'MMMM yyyy')}
               </Typography>
             </CardContent>
           </Card>

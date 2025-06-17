@@ -451,6 +451,27 @@ export default function Budgets() {
 					</Paper>
 				)}
 
+				{/* Prominent Unallocated Income Notice */}
+				{groupedBudget.summary && groupedBudget.summary.unallocated_income !== 0 && (
+					<Alert
+						severity={groupedBudget.summary.unallocated_income < 0 ? 'error' : 'warning'}
+						sx={{ mb: 3 }}
+					>
+						<Typography variant="body1" fontWeight="medium">
+							{groupedBudget.summary.unallocated_income < 0
+								? `You have over-allocated by $${Math.abs(groupedBudget.summary.unallocated_income).toFixed(2)}`
+								: `You have $${groupedBudget.summary.unallocated_income.toFixed(2)} left to allocate`
+							}
+						</Typography>
+						<Typography variant="body2" color="text.secondary">
+							{groupedBudget.summary.unallocated_income < 0
+								? 'Your total expenses and savings exceed your budgeted income. Consider reducing some budgets or increasing income.'
+								: 'Consider allocating this remaining income to expenses or savings goals.'
+							}
+						</Typography>
+					</Alert>
+				)}
+
 				{/* Grouped Budget Categories */}
 				{groupedBudget.groups.map((group: any) => (
 					<Accordion key={group.category_id} defaultExpanded sx={{ mb: 2 }}>
@@ -469,6 +490,14 @@ export default function Budgets() {
 												group.category_type === 'EXPENSE' ? 'error' : 'info'
 										}
 									/>
+									{group.total_transaction_count !== undefined && (
+										<Chip
+											label={`${group.total_transaction_count} transactions`}
+											size="small"
+											variant="outlined"
+											color="default"
+										/>
+									)}
 								</Box>
 								<Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
 									<Box sx={{ textAlign: 'right' }}>
@@ -498,115 +527,206 @@ export default function Budgets() {
 										</TableRow>
 									</TableHead>
 									<TableBody>
-										{/* Parent category row if it has budget */}
-										{group.budgeted !== undefined && (
-											<TableRow>
-												<TableCell>
-													<Box display="flex" alignItems="center" gap={1}>
-														<Category color="primary" fontSize="small" />
-														<Typography fontWeight="bold">{group.category_name}</Typography>
-														{group.is_over_budget && (
-															<Chip label="Over Budget" color="error" size="small" />
+										{/* Parent category - show summary if has children, otherwise show normal row */}
+										{group.children && group.children.length > 0 ? (
+											(() => {
+												// Calculate totals from children
+												const totalBudgeted = group.children.reduce((sum: number, child: any) => sum + (child.budgeted || 0), 0);
+												const totalSpent = group.children.reduce((sum: number, child: any) => sum + (child.spent || 0), 0);
+												const totalRemaining = totalBudgeted - totalSpent;
+												const totalPercentageUsed = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0;
+												const totalDailyAllowance = group.children.reduce((sum: number, child: any) => sum + (child.daily_allowance || 0), 0);
+												const isOverBudget = totalRemaining < 0;
+
+												return (
+													/* Parent with children - show summary only */
+													<TableRow>
+														<TableCell>
+															<Box display="flex" alignItems="center" gap={1}>
+																<Category color="primary" fontSize="small" />
+																<Typography fontWeight="bold">{group.category_name}</Typography>
+																<Chip
+																	label={`${group.children?.length || 0} subcategories`}
+																	size="small"
+																	color="primary"
+																	variant="outlined"
+																/>
+																{isOverBudget && (
+																	<Chip label="Over Budget" color="error" size="small" />
+																)}
+															</Box>
+														</TableCell>
+														<TableCell align="right">
+															<Typography variant="body2" color="text.secondary">
+																${totalBudgeted.toFixed(2)}
+															</Typography>
+															<Typography variant="caption" display="block" color="text.secondary">
+																(across {group.children?.length || 0} subcategories)
+															</Typography>
+														</TableCell>
+														<TableCell align="right">
+															<Typography color={isOverBudget ? 'error' : 'inherit'}>
+																${totalSpent.toFixed(2)}
+															</Typography>
+														</TableCell>
+														<TableCell align="right">
+															<Typography color={totalRemaining < 0 ? 'error' : 'success.main'}>
+																${totalRemaining.toFixed(2)}
+															</Typography>
+														</TableCell>
+														<TableCell align="center">
+															<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+																<LinearProgress
+																	variant="determinate"
+																	value={Math.min(totalPercentageUsed, 100)}
+																	color={getProgressColor(totalPercentageUsed)}
+																	sx={{ width: 60, height: 8 }}
+																/>
+																<Typography variant="body2">
+																	{totalPercentageUsed.toFixed(0)}%
+																</Typography>
+															</Box>
+														</TableCell>
+														{group.category_type !== 'INCOME' && (
+															<TableCell align="right">
+																<Typography variant="body2" color="success.main">
+																	${totalDailyAllowance.toFixed(2)}
+																</Typography>
+															</TableCell>
 														)}
-													</Box>
-												</TableCell>
-												<TableCell align="right">
-													<FormControl variant="outlined" size="small" sx={{ minWidth: 120 }}>
-														<OutlinedInput
-															value={budgetAmounts[group.category_id] || ''}
-															onChange={(e) => handleAmountChange(group.category_id, e.target.value)}
-															startAdornment={<InputAdornment position="start">$</InputAdornment>}
-															placeholder="0.00"
-														/>
-													</FormControl>
-												</TableCell>
-												<TableCell align="right">
-													<Typography color={group.is_over_budget ? 'error' : 'inherit'}>
-														${group.spent.toFixed(2)}
-													</Typography>
-												</TableCell>
-												<TableCell align="right">
-													<Typography color={group.remaining < 0 ? 'error' : 'success.main'}>
-														${group.remaining.toFixed(2)}
-													</Typography>
-												</TableCell>
-												<TableCell align="center">
-													<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-														<LinearProgress
-															variant="determinate"
-															value={Math.min(group.percentage_used, 100)}
-															color={getProgressColor(group.percentage_used)}
-															sx={{ width: 60, height: 8 }}
-														/>
-														<Typography variant="body2">
-															{group.percentage_used.toFixed(0)}%
-														</Typography>
-													</Box>
-												</TableCell>
-												{group.category_type !== 'INCOME' && (
+													</TableRow>
+												);
+											})()
+										) : (
+											/* Parent without children - show normal editable row */
+											group.budgeted !== undefined && (
+												<TableRow>
+													<TableCell>
+														<Box display="flex" alignItems="center" gap={1}>
+															<Category color="primary" fontSize="small" />
+															<Typography fontWeight="bold">{group.category_name}</Typography>
+															{group.is_over_budget && (
+																<Chip label="Over Budget" color="error" size="small" />
+															)}
+														</Box>
+													</TableCell>
 													<TableCell align="right">
-														<Typography variant="body2" color="success.main">
-															${group.daily_allowance?.toFixed(2) || '0.00'}
+														<FormControl variant="outlined" size="small" sx={{ minWidth: 120 }}>
+															<OutlinedInput
+																value={budgetAmounts[group.category_id] || ''}
+																onChange={(e) => handleAmountChange(group.category_id, e.target.value)}
+																startAdornment={<InputAdornment position="start">$</InputAdornment>}
+																placeholder="0.00"
+															/>
+														</FormControl>
+													</TableCell>
+													<TableCell align="right">
+														<Typography color={group.is_over_budget ? 'error' : 'inherit'}>
+															${group.spent.toFixed(2)}
 														</Typography>
 													</TableCell>
-												)}
-											</TableRow>
+													<TableCell align="right">
+														<Typography color={group.remaining < 0 ? 'error' : 'success.main'}>
+															${group.remaining.toFixed(2)}
+														</Typography>
+													</TableCell>
+													<TableCell align="center">
+														<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+															<LinearProgress
+																variant="determinate"
+																value={Math.min(group.percentage_used, 100)}
+																color={getProgressColor(group.percentage_used)}
+																sx={{ width: 60, height: 8 }}
+															/>
+															<Typography variant="body2">
+																{group.percentage_used.toFixed(0)}%
+															</Typography>
+														</Box>
+													</TableCell>
+													{group.category_type !== 'INCOME' && (
+														<TableCell align="right">
+															<Typography variant="body2" color="success.main">
+																${group.daily_allowance?.toFixed(2) || '0.00'}
+															</Typography>
+														</TableCell>
+													)}
+												</TableRow>
+											)
 										)}
 
-										{/* Child categories */}
-										{group.children.map((child: any) => (
-											<TableRow key={child.category_id}>
-												<TableCell>
-													<Box display="flex" alignItems="center" gap={1} sx={{ pl: 3 }}>
-														<Category color="action" fontSize="small" />
-														{child.category_name}
-														{child.is_over_budget && (
-															<Chip label="Over Budget" color="error" size="small" />
-														)}
-													</Box>
+										{/* Child categories - only show if parent category is collapsed */}
+										{group.children && group.children.length > 0 && (
+											<TableRow>
+												<TableCell colSpan={group.category_type !== 'INCOME' ? 6 : 5}>
+													<Accordion>
+														<AccordionSummary expandIcon={<ExpandMore />}>
+															<Typography variant="body2" color="text.secondary">
+																View and edit {group.children?.length || 0} subcategories
+															</Typography>
+														</AccordionSummary>
+														<AccordionDetails>
+															<Table size="small">
+																<TableBody>
+																	{group.children.map((child: any) => (
+																		<TableRow key={child.category_id}>
+																			<TableCell>
+																				<Box display="flex" alignItems="center" gap={1} sx={{ pl: 2 }}>
+																					<Category color="action" fontSize="small" />
+																					{child.category_name}
+																					{child.is_over_budget && (
+																						<Chip label="Over Budget" color="error" size="small" />
+																					)}
+																				</Box>
+																			</TableCell>
+																			<TableCell align="right">
+																				<FormControl variant="outlined" size="small" sx={{ minWidth: 120 }}>
+																					<OutlinedInput
+																						value={budgetAmounts[child.category_id] || ''}
+																						onChange={(e) => handleAmountChange(child.category_id, e.target.value)}
+																						startAdornment={<InputAdornment position="start">$</InputAdornment>}
+																						placeholder="0.00"
+																					/>
+																				</FormControl>
+																			</TableCell>
+																			<TableCell align="right">
+																				<Typography color={child.is_over_budget ? 'error' : 'inherit'}>
+																					${(child.spent || 0).toFixed(2)}
+																				</Typography>
+																			</TableCell>
+																			<TableCell align="right">
+																				<Typography color={(child.remaining || 0) < 0 ? 'error' : 'success.main'}>
+																					${(child.remaining || 0).toFixed(2)}
+																				</Typography>
+																			</TableCell>
+																			<TableCell align="center">
+																				<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+																					<LinearProgress
+																						variant="determinate"
+																						value={Math.min((child.percentage_used || 0), 100)}
+																						color={getProgressColor(child.percentage_used || 0)}
+																						sx={{ width: 60, height: 8 }}
+																					/>
+																					<Typography variant="body2">
+																						{(child.percentage_used || 0).toFixed(0)}%
+																					</Typography>
+																				</Box>
+																			</TableCell>
+																			{group.category_type !== 'INCOME' && (
+																				<TableCell align="right">
+																					<Typography variant="body2" color="success.main">
+																						${(child.daily_allowance || 0).toFixed(2)}
+																					</Typography>
+																				</TableCell>
+																			)}
+																		</TableRow>
+																	))}
+																</TableBody>
+															</Table>
+														</AccordionDetails>
+													</Accordion>
 												</TableCell>
-												<TableCell align="right">
-													<FormControl variant="outlined" size="small" sx={{ minWidth: 120 }}>
-														<OutlinedInput
-															value={budgetAmounts[child.category_id] || ''}
-															onChange={(e) => handleAmountChange(child.category_id, e.target.value)}
-															startAdornment={<InputAdornment position="start">$</InputAdornment>}
-															placeholder="0.00"
-														/>
-													</FormControl>
-												</TableCell>
-												<TableCell align="right">
-													<Typography color={child.is_over_budget ? 'error' : 'inherit'}>
-														${child.spent.toFixed(2)}
-													</Typography>
-												</TableCell>
-												<TableCell align="right">
-													<Typography color={child.remaining < 0 ? 'error' : 'success.main'}>
-														${child.remaining.toFixed(2)}
-													</Typography>
-												</TableCell>
-												<TableCell align="center">
-													<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-														<LinearProgress
-															variant="determinate"
-															value={Math.min(child.percentage_used, 100)}
-															color={getProgressColor(child.percentage_used)}
-															sx={{ width: 60, height: 8 }}
-														/>
-														<Typography variant="body2">
-															{child.percentage_used.toFixed(0)}%
-														</Typography>
-													</Box>
-												</TableCell>
-												{group.category_type !== 'INCOME' && (
-													<TableCell align="right">
-														<Typography variant="body2" color="success.main">
-															${child.daily_allowance.toFixed(2)}
-														</Typography>
-													</TableCell>
-												)}
 											</TableRow>
-										))}
+										)}
 									</TableBody>
 								</Table>
 							</TableContainer>
