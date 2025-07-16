@@ -125,9 +125,17 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
     const [isLoading, setIsLoading] = useState(true);
 
-    // Load theme preference from API on mount
+    // Load theme preference from API on mount (only if authenticated)
     useEffect(() => {
         const loadThemeFromAPI = async () => {
+            // Only try to load from API if user is authenticated
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                console.log('No auth token found, skipping API theme loading');
+                setIsLoading(false);
+                return;
+            }
+
             try {
                 const response = await apiClient.getSettings();
                 console.log('API settings response:', response.data);
@@ -168,8 +176,15 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     useEffect(() => {
         localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
 
-        // Save to API (fire and forget, don't block UI)
+        // Save to API (fire and forget, don't block UI) - only if authenticated
         const saveThemeToAPI = async () => {
+            // Only try to save to API if user is authenticated
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                console.log('No auth token found, skipping API theme saving');
+                return;
+            }
+
             try {
                 // Get current settings first
                 const response = await apiClient.getSettings();

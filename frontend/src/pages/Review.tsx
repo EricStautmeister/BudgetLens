@@ -129,10 +129,10 @@ export default function Review() {
 	});
 
 	const handleSelectAll = () => {
-		if (selectedTransactions.length === transactions?.length) {
+		if (selectedTransactions.length === (transactions?.length || 0)) {
 			setSelectedTransactions([]);
 		} else {
-			setSelectedTransactions(transactions?.map((t: any) => t.id) || []);
+			setSelectedTransactions(transactions && Array.isArray(transactions) ? transactions.map((t: any) => t.id) : []);
 		}
 	};
 
@@ -272,11 +272,11 @@ export default function Review() {
 												});
 											}
 										}}>
-										{categories?.map((cat: any) => (
+										{categories && Array.isArray(categories) ? categories.map((cat: any) => (
 											<MenuItem key={cat.id} value={cat.id}>
 												{cat.name}
 											</MenuItem>
-										))}
+										)) : null}
 									</Select>
 								</FormControl>
 							</Box>
@@ -289,10 +289,10 @@ export default function Review() {
 								<TableRow>
 									<TableCell padding="checkbox">
 										<Checkbox
-											checked={selectedTransactions.length === transactions?.length}
+											checked={selectedTransactions.length === (transactions && Array.isArray(transactions) ? transactions.length : 0)}
 											indeterminate={
 												selectedTransactions.length > 0 &&
-												selectedTransactions.length < transactions?.length
+												selectedTransactions.length < (transactions && Array.isArray(transactions) ? transactions.length : 0)
 											}
 											onChange={handleSelectAll}
 										/>
@@ -307,7 +307,7 @@ export default function Review() {
 								</TableRow>
 							</TableHead>
 							<TableBody>
-								{transactions?.map((transaction: any) => (
+								{transactions && Array.isArray(transactions) ? transactions.map((transaction: any) => (
 									<TableRow key={transaction.id}>
 										<TableCell padding="checkbox">
 											<Checkbox
@@ -350,11 +350,11 @@ export default function Review() {
 													<MenuItem value="">
 														<em>Select category</em>
 													</MenuItem>
-													{categories?.map((cat: any) => (
+													{categories && Array.isArray(categories) ? categories.map((cat: any) => (
 														<MenuItem key={cat.id} value={cat.id}>
 															{cat.name}
 														</MenuItem>
-													))}
+													)) : null}
 												</Select>
 											</FormControl>
 										</TableCell>
@@ -373,11 +373,11 @@ export default function Review() {
 													<MenuItem value="">
 														<em>Select vendor</em>
 													</MenuItem>
-													{vendors?.map((vendor: any) => (
+													{vendors && Array.isArray(vendors) ? vendors.map((vendor: any) => (
 														<MenuItem key={vendor.id} value={vendor.id}>
 															{vendor.name}
 														</MenuItem>
-													))}
+													)) : null}
 												</Select>
 											</FormControl>
 										</TableCell>
@@ -430,7 +430,7 @@ export default function Review() {
 											</IconButton>
 										</TableCell>
 									</TableRow>
-								))}
+								)) : null}
 							</TableBody>
 						</Table>
 					</TableContainer>
@@ -451,7 +451,7 @@ export default function Review() {
 							</Typography>
 						)}
 					</Box>
-					{suggestions?.suggestions?.length > 0 ? (
+					{suggestions?.suggestions && Array.isArray(suggestions.suggestions) && suggestions.suggestions.length > 0 ? (
 						<Box sx={{ mt: 2 }}>
 							{suggestions.suggestions.map((suggestion: any, index: number) => (
 								<Paper

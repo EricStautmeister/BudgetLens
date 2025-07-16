@@ -97,7 +97,6 @@ class TransferRule(BaseModel):
     
     class Config:
         populate_by_name = True
-        allow_population_by_field_name = True
 
 # Transfer settings schema
 class TransferSettings(BaseModel):
@@ -110,4 +109,3 @@ class TransferSettings(BaseModel):
     
     class Config:
         populate_by_name = True
-        allow_population_by_field_name = True

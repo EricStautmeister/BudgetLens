@@ -40,9 +40,11 @@ import {
 	RateReview,
 	Psychology,
 	Warning,
+	SwapHoriz,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
+import { SavingsAccountMappingDialog } from '../components/SavingsAccountMappingDialog';
 
 // Category type enum to match backend
 enum CategoryType {
@@ -50,6 +52,7 @@ enum CategoryType {
 	EXPENSE = 'EXPENSE',
 	SAVING = 'SAVING',
 	MANUAL_REVIEW = 'MANUAL_REVIEW',
+	TRANSFER = 'TRANSFER',
 }
 
 interface Category {
@@ -72,6 +75,7 @@ interface CategoryHierarchy {
 	expense: Category[];
 	saving: Category[];
 	manual_review: Category[];
+	transfer: Category[];
 }
 
 const categoryTypeLabels = {
@@ -79,6 +83,7 @@ const categoryTypeLabels = {
 	[CategoryType.EXPENSE]: 'Expense',
 	[CategoryType.SAVING]: 'Saving',
 	[CategoryType.MANUAL_REVIEW]: 'Manual Review',
+	[CategoryType.TRANSFER]: 'Transfer',
 };
 
 const categoryTypeIcons = {
@@ -86,6 +91,7 @@ const categoryTypeIcons = {
 	[CategoryType.EXPENSE]: <TrendingDown color="error" />,
 	[CategoryType.SAVING]: <Savings color="primary" />,
 	[CategoryType.MANUAL_REVIEW]: <RateReview color="warning" />,
+	[CategoryType.TRANSFER]: <SwapHoriz color="info" />,
 };
 
 const categoryTypeColors = {
@@ -93,6 +99,7 @@ const categoryTypeColors = {
 	[CategoryType.EXPENSE]: 'error',
 	[CategoryType.SAVING]: 'primary',
 	[CategoryType.MANUAL_REVIEW]: 'warning',
+	[CategoryType.TRANSFER]: 'info',
 } as const;
 
 export default function Categories() {
@@ -102,6 +109,8 @@ export default function Categories() {
 	const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 	// const [currentTab, setCurrentTab] = useState(0);
 	const [manualReviewGuideOpen, setManualReviewGuideOpen] = useState(false);
+	const [savingsMapOpen, setSavingsMapOpen] = useState(false);
+	const [selectedSavingsCategory, setSelectedSavingsCategory] = useState<{ id: string, name: string } | null>(null);
 	const [formData, setFormData] = useState({
 		name: '',
 		category_type: CategoryType.EXPENSE,
@@ -206,6 +215,8 @@ export default function Categories() {
 				return ['Emergency Fund', 'Vacation Fund', 'Retirement Savings'];
 			case CategoryType.MANUAL_REVIEW:
 				return ['TWINT Payments', 'ATM Withdrawals', 'Generic Bank Transfers', 'Cash Transactions'];
+			case CategoryType.TRANSFER:
+				return ['Account Transfers', 'Inter-Bank Transfers', 'Savings Transfers'];
 			default:
 				return [];
 		}
@@ -239,6 +250,20 @@ export default function Categories() {
 	const handleClose = () => {
 		setOpen(false);
 		setEditingCategory(null);
+	};
+
+	const handleOpenSavingsMapping = (category?: Category) => {
+		if (category) {
+			setSelectedSavingsCategory({ id: category.id, name: category.name });
+		} else {
+			setSelectedSavingsCategory(null);
+		}
+		setSavingsMapOpen(true);
+	};
+
+	const handleCloseSavingsMapping = () => {
+		setSavingsMapOpen(false);
+		setSelectedSavingsCategory(null);
 	};
 
 	const handleSubmit = () => {
@@ -287,7 +312,11 @@ export default function Categories() {
 
 	const getTotalCategories = (): number => {
 		if (!hierarchy) return 0;
-		return hierarchy.income.length + hierarchy.expense.length + hierarchy.saving.length + hierarchy.manual_review.length;
+		return (hierarchy.income?.length || 0) +
+			(hierarchy.expense?.length || 0) +
+			(hierarchy.saving?.length || 0) +
+			(hierarchy.manual_review?.length || 0) +
+			(hierarchy.transfer?.length || 0);
 	};
 
 	const renderCategorySection = (title: string, categories: Category[], type: CategoryType, icon: React.ReactNode) => {
@@ -320,8 +349,20 @@ export default function Categories() {
 								{type === CategoryType.SAVING && (
 									"Savings goals and investment categories"
 								)}
+								{type === CategoryType.TRANSFER && (
+									"Transfer categories facilitate account transfers and money movement"
+								)}
 							</Typography>
 							<Box display="flex" gap={1}>
+								{type === CategoryType.SAVING && (
+									<Button
+										size="small"
+										variant="outlined"
+										startIcon={<AccountBalance />}
+										onClick={() => handleOpenSavingsMapping()}>
+										Manage Account Mappings
+									</Button>
+								)}
 								{type === CategoryType.MANUAL_REVIEW ? (
 									<Button
 										size="small"
@@ -427,6 +468,13 @@ export default function Categories() {
 																		)}
 																	</Box>
 																	<Box>
+																		{type === CategoryType.SAVING && (
+																			<Tooltip title="Manage account mappings">
+																				<IconButton onClick={() => handleOpenSavingsMapping(child)} size="small">
+																					<AccountBalance />
+																				</IconButton>
+																			</Tooltip>
+																		)}
 																		<IconButton onClick={() => handleOpen(child)} size="small">
 																			<Edit />
 																		</IconButton>
@@ -467,6 +515,13 @@ export default function Categories() {
 													)}
 												</Box>
 												<Box>
+													{type === CategoryType.SAVING && (
+														<Tooltip title="Manage account mappings">
+															<IconButton onClick={() => handleOpenSavingsMapping(category)} size="small">
+																<AccountBalance />
+															</IconButton>
+														</Tooltip>
+													)}
 													<IconButton onClick={() => handleOpen(category)} size="small">
 														<Edit />
 													</IconButton>
@@ -503,6 +558,13 @@ export default function Categories() {
 										)}
 									</Box>
 									<Box>
+										{type === CategoryType.SAVING && (
+											<Tooltip title="Manage account mappings">
+												<IconButton onClick={() => handleOpenSavingsMapping(category)} size="small">
+													<AccountBalance />
+												</IconButton>
+											</Tooltip>
+										)}
 										<IconButton onClick={() => handleOpen(category)} size="small">
 											<Edit />
 										</IconButton>
@@ -533,7 +595,7 @@ export default function Categories() {
 											ATM withdrawals and cash transactions
 										</Typography>
 										<Typography component="li" variant="body2">
-											Generic bank transfers
+											Unknown bank transfers
 										</Typography>
 										<Typography component="li" variant="body2">
 											Payment apps (PayPal, Venmo, etc.)
@@ -606,7 +668,7 @@ export default function Categories() {
 
 			{/* Summary Cards */}
 			<Grid container spacing={3} sx={{ mb: 3 }}>
-				<Grid item xs={12} md={3}>
+				<Grid item xs={12} md={2.4}>
 					<Card>
 						<CardContent>
 							<Box display="flex" alignItems="center" gap={1} mb={1}>
@@ -615,11 +677,11 @@ export default function Categories() {
 									Income Categories
 								</Typography>
 							</Box>
-							<Typography variant="h4">{hierarchy?.income.length || 0}</Typography>
+							<Typography variant="h4">{hierarchy?.income?.length || 0}</Typography>
 						</CardContent>
 					</Card>
 				</Grid>
-				<Grid item xs={12} md={3}>
+				<Grid item xs={12} md={2.4}>
 					<Card>
 						<CardContent>
 							<Box display="flex" alignItems="center" gap={1} mb={1}>
@@ -628,11 +690,11 @@ export default function Categories() {
 									Expense Categories
 								</Typography>
 							</Box>
-							<Typography variant="h4">{hierarchy?.expense.length || 0}</Typography>
+							<Typography variant="h4">{hierarchy?.expense?.length || 0}</Typography>
 						</CardContent>
 					</Card>
 				</Grid>
-				<Grid item xs={12} md={3}>
+				<Grid item xs={12} md={2.4}>
 					<Card>
 						<CardContent>
 							<Box display="flex" alignItems="center" gap={1} mb={1}>
@@ -641,11 +703,24 @@ export default function Categories() {
 									Saving Goals
 								</Typography>
 							</Box>
-							<Typography variant="h4">{hierarchy?.saving.length || 0}</Typography>
+							<Typography variant="h4">{hierarchy?.saving?.length || 0}</Typography>
 						</CardContent>
 					</Card>
 				</Grid>
-				<Grid item xs={12} md={3}>
+				<Grid item xs={12} md={2.4}>
+					<Card>
+						<CardContent>
+							<Box display="flex" alignItems="center" gap={1} mb={1}>
+								<SwapHoriz color="info" />
+								<Typography color="textSecondary" gutterBottom>
+									Transfer Categories
+								</Typography>
+							</Box>
+							<Typography variant="h4">{hierarchy?.transfer?.length || 0}</Typography>
+						</CardContent>
+					</Card>
+				</Grid>
+				<Grid item xs={12} md={2.4}>
 					<Card>
 						<CardContent>
 							<Box display="flex" alignItems="center" gap={1} mb={1}>
@@ -681,6 +756,12 @@ export default function Categories() {
 							hierarchy.saving,
 							CategoryType.SAVING,
 							categoryTypeIcons[CategoryType.SAVING]
+						)}
+						{renderCategorySection(
+							'Transfer Categories',
+							hierarchy.transfer || [],
+							CategoryType.TRANSFER,
+							categoryTypeIcons[CategoryType.TRANSFER]
 						)}
 						{renderCategorySection(
 							'Manual Review Categories',
@@ -723,7 +804,7 @@ export default function Categories() {
 						{[
 							{ name: 'TWINT Payments', description: 'Mobile payments for various merchants' },
 							{ name: 'ATM Withdrawals', description: 'Cash withdrawals for various purposes' },
-							{ name: 'Bank Transfers', description: 'Generic transfers and bill payments' },
+							{ name: 'Unknown Bank Transfers', description: 'Generic transfers and bill payments' },
 							{ name: 'PayPal Payments', description: 'Online payments through PayPal' },
 							{ name: 'Apple Pay', description: 'Contactless payments via Apple Pay' },
 							{ name: 'Google Pay', description: 'Contactless payments via Google Pay' },
@@ -853,7 +934,10 @@ export default function Categories() {
 									"🏦 Saving categories track money set aside for specific goals (emergency fund, vacation, retirement, etc.)"
 								)}
 								{formData.category_type === CategoryType.MANUAL_REVIEW && (
-									"🔍 Manual Review categories are for generic vendors that require human classification (TWINT, ATM, bank transfers, etc.)"
+									"🔍 Manual Review categories are for generic vendors that require human classification (TWINT, ATM, unknown bank transfers, etc.)"
+								)}
+								{formData.category_type === CategoryType.TRANSFER && (
+									"↔️ Transfer categories facilitate account transfers and money movement between accounts"
 								)}
 							</Typography>
 						</Alert>
@@ -926,7 +1010,7 @@ export default function Categories() {
 											<strong>ATM Withdrawals</strong> - Cash for various purposes
 										</Typography>
 										<Typography component="li" variant="body2">
-											<strong>Bank Transfers</strong> - Generic transfers between accounts
+											<strong>Unknown Bank Transfers</strong> - Generic transfers between accounts
 										</Typography>
 										<Typography component="li" variant="body2">
 											<strong>Generic Payment Apps</strong> - PayPal, Venmo, etc.
@@ -964,6 +1048,14 @@ export default function Categories() {
 					</Button>
 				</DialogActions>
 			</Dialog>
+
+			{/* Savings Account Mapping Dialog */}
+			<SavingsAccountMappingDialog
+				open={savingsMapOpen}
+				onClose={handleCloseSavingsMapping}
+				categoryId={selectedSavingsCategory?.id}
+				categoryName={selectedSavingsCategory?.name}
+			/>
 		</Box>
 	);
 }

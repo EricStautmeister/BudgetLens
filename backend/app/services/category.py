@@ -52,7 +52,12 @@ class CategoryService:
             ],
             CategoryType.MANUAL_REVIEW: [
                 {"name": "TWINT Payments", "allow_auto_learning": False},
-                {"name": "ATM Withdrawals", "allow_auto_learning": False}
+                {"name": "ATM Withdrawals", "allow_auto_learning": False},
+                {"name": "Unknown Bank Transfers", "allow_auto_learning": False},
+                {"name": "Manual Review", "allow_auto_learning": False}
+            ],
+            CategoryType.TRANSFER: [
+                {"name": "Account Transfers", "allow_auto_learning": True}
             ]
         }
         
@@ -145,6 +150,8 @@ class CategoryService:
                 hierarchy.saving.append(category_dict)
             elif category.category_type == CategoryType.MANUAL_REVIEW:
                 hierarchy.manual_review.append(category_dict)
+            elif category.category_type == CategoryType.TRANSFER:
+                hierarchy.transfer.append(category_dict)
         
         return hierarchy
     

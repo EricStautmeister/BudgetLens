@@ -14,28 +14,83 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.get("/suggestions")
-async def get_transfer_suggestions(
-    limit: int = Query(5, ge=1, le=20, description="Number of suggestions to return"),
+@router.get("/patterns")
+async def get_transfer_patterns(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get AI-suggested transfers for manual review"""
+    """Get all learned transfer patterns"""
+    try:
+        service = TransferService(db, str(current_user.id))
+        patterns = service.get_transfer_patterns()
+        
+        return {
+            "patterns": patterns,
+            "message": "Transfer patterns retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error getting transfer patterns: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve transfer patterns")
+
+@router.put("/patterns/{pattern_id}")
+async def update_transfer_pattern(
+    pattern_id: str,
+    settings: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update transfer pattern settings"""
+    try:
+        service = TransferService(db, str(current_user.id))
+        updated_pattern = service.update_transfer_pattern(pattern_id, settings)
+        
+        return {
+            "pattern": updated_pattern,
+            "message": "Transfer pattern updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating transfer pattern: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update transfer pattern")
+
+@router.delete("/patterns/{pattern_id}")
+async def delete_transfer_pattern(
+    pattern_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Delete transfer pattern"""
+    try:
+        service = TransferService(db, str(current_user.id))
+        success = service.delete_transfer_pattern(pattern_id)
+        
+        if success:
+            return {"message": "Transfer pattern deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Transfer pattern not found")
+    except Exception as e:
+        logger.error(f"Error deleting transfer pattern: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete transfer pattern")
+
+@router.get("/suggestions")
+async def get_transfer_suggestions(
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of suggestions to return"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get transfer suggestions using learned patterns"""
     try:
         service = TransferService(db, str(current_user.id))
         suggestions = service.get_transfer_suggestions(limit)
         
         return {
             "suggestions": suggestions,
-            "count": len(suggestions)
+            "message": f"Found {len(suggestions)} transfer suggestions"
         }
     except Exception as e:
         logger.error(f"Error getting transfer suggestions: {e}")
-        # Return empty suggestions instead of failing
-        return {
-            "suggestions": [],
-            "count": 0
-        }
+        raise HTTPException(status_code=500, detail="Failed to get transfer suggestions")
 
 @router.get("/settings")
 async def get_transfer_settings(
@@ -104,13 +159,18 @@ async def update_transfer_settings(
 @router.get("/detect", response_model=TransferDetectionResult)
 async def detect_transfers(
     days_lookback: int = Query(7, ge=1, le=30, description="Days to look back for potential transfers"),
+    include_pockets: bool = Query(True, description="Include savings pocket suggestions"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Detect potential transfers between accounts"""
+    """Detect potential transfers between accounts with enhanced savings pocket support"""
     try:
         service = TransferService(db, str(current_user.id))
-        result = service.detect_potential_transfers_enhanced()
+        
+        if include_pockets:
+            result = service.detect_transfers_with_pockets(include_pocket_assignments=True)
+        else:
+            result = service.detect_potential_transfers_enhanced()
         
         return TransferDetectionResult(
             potential_transfers=result["potential_transfers"],
@@ -128,27 +188,53 @@ async def detect_transfers(
 @router.post("/match")
 async def create_manual_transfer(
     match_request: TransferMatchRequest,
+    learn_pattern: bool = Query(True, description="Learn pattern from this manual transfer"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Manually create a transfer between two transactions"""
+    """Manually create a transfer between two transactions with enhanced learning"""
     try:
         service = TransferService(db, str(current_user.id))
-        transfer = service.create_manual_transfer(
+        result = service.create_transfer_with_learning(
             str(match_request.from_transaction_id),
-            str(match_request.to_transaction_id)
+            str(match_request.to_transaction_id),
+            learn_pattern=learn_pattern
         )
         
         return {
-            "message": "Transfer created successfully",
-            "transfer_id": str(transfer.id),
-            "amount": float(transfer.amount)
+            "transfer_id": result["transfer_id"],
+            "message": result["message"],
+            "pattern_learned": result["pattern_learned"]
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error creating manual transfer: {e}")
         raise HTTPException(status_code=500, detail="Failed to create transfer")
+
+@router.post("/{transfer_id}/assign-pocket")
+async def assign_transfer_to_pocket(
+    transfer_id: UUID,
+    pocket_id: UUID,
+    allocation_amount: float = Query(None, description="Amount to allocate (defaults to full transfer amount)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Assign a transfer to a specific savings pocket"""
+    try:
+        service = TransferService(db, str(current_user.id))
+        result = service.assign_transfer_to_pocket(
+            str(transfer_id),
+            str(pocket_id),
+            allocation_amount
+        )
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error assigning transfer to pocket: {e}")
+        raise HTTPException(status_code=500, detail="Failed to assign transfer to pocket")
 
 @router.post("/")
 async def create_transfer(

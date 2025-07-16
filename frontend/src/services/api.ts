@@ -308,6 +308,10 @@ class ApiClient {
 		return this.client.put(`/transactions/${id}/categorize?learn_patterns=${learnPatterns}`, data);
 	}
 
+	async updateTransaction(id: string, data: any) {
+		return this.client.put(`/transactions/${id}`, data);
+	}
+
 	async getVendorSuggestions(transactionId: string) {
 		return this.client.get(`/transactions/${transactionId}/vendor-suggestions`);
 	}
@@ -449,6 +453,16 @@ class ApiClient {
 		}
 	}
 
+	async getCurrentBudgetGrouped() {
+		try {
+			const response = await this.client.get('/budgets/current/grouped');
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching current grouped budget:', error);
+			throw error;
+		}
+	}
+
 	async getDailyAllowances(params?: { month?: string }) {
 		try {
 			let url = '/budgets/daily-allowances';
@@ -472,6 +486,16 @@ class ApiClient {
 			return response;
 		} catch (error) {
 			this.debugLog('Error fetching budget for period:', error);
+			throw error;
+		}
+	}
+
+	async getBudgetForPeriodGrouped(period: string) {
+		try {
+			const response = await this.client.get(`/budgets/period/${period}/grouped`);
+			return response;
+		} catch (error) {
+			this.debugLog('Error fetching grouped budget for period:', error);
 			throw error;
 		}
 	}
@@ -619,8 +643,10 @@ class ApiClient {
 		});
 	}
 
-	async createManualTransfer(data: { from_transaction_id: string; to_transaction_id: string; amount: number }) {
-		return this.client.post('/transfers/match', data);
+	async createManualTransfer(data: { from_transaction_id: string; to_transaction_id: string; amount: number }, learnPattern: boolean = true) {
+		return this.client.post('/transfers/match', data, {
+			params: { learn_pattern: learnPattern }
+		});
 	}
 
 	async deleteTransfer(transferId: string) {
@@ -763,30 +789,111 @@ class ApiClient {
 		return this.client.post('/transfers/detect-enhanced', settings || {});
 	}
 
-	async getTransferSuggestions(limit: number = 5) {
+	async getTransferSuggestions(limit: number = 20) {
 		return this.client.get('/transfers/suggestions', {
 			params: { limit }
 		});
 	}
 
-	async getBudgetForPeriodGrouped(period: string) {
-		try {
-			const response = await this.client.get(`/budgets/period/${period}/grouped`);
-			return response;
-		} catch (error) {
-			this.debugLog('Error fetching grouped budget for period:', error);
-			throw error;
-		}
+	// Transfer pattern management endpoints
+	async getTransferPatterns() {
+		return this.client.get('/transfers/patterns');
 	}
 
-	async getCurrentBudgetGrouped() {
-		try {
-			const response = await this.client.get('/budgets/current/grouped');
-			return response;
-		} catch (error) {
-			this.debugLog('Error fetching current grouped budget:', error);
-			throw error;
-		}
+	async updateTransferPattern(patternId: string, settings: any) {
+		return this.client.put(`/transfers/patterns/${patternId}`, settings);
+	}
+
+	async deleteTransferPattern(patternId: string) {
+		return this.client.delete(`/transfers/patterns/${patternId}`);
+	}
+
+	// Savings mappings API
+	async getSavingsMappings() {
+		return this.client.get('/savings/mappings');
+	}
+
+	async createSavingsMapping(data: {
+		savings_category_id: string;
+		account_id: string;
+		target_amount?: number;
+		current_amount?: number;
+	}) {
+		return this.client.post('/savings/mappings', data);
+	}
+
+	async deleteSavingsMapping(mappingId: string) {
+		return this.client.delete(`/savings/mappings/${mappingId}`);
+	}
+
+	// Unallocated transfers API
+	async getUnallocatedTransfers(limit: number = 10) {
+		return this.client.get('/transfers/unallocated', {
+			params: { limit }
+		});
+	}
+
+	// Savings Pockets API
+	async getSavingsPockets() {
+		return this.client.get('/savings-pockets');
+	}
+
+	async createSavingsPocket(data: {
+		name: string;
+		description?: string;
+		target_amount?: number;
+		account_id: string;
+		color?: string;
+		icon?: string;
+	}) {
+		return this.client.post('/savings-pockets', data);
+	}
+
+	async updateSavingsPocket(pocketId: string, data: {
+		name?: string;
+		description?: string;
+		target_amount?: number;
+		color?: string;
+		icon?: string;
+	}) {
+		return this.client.put(`/savings-pockets/${pocketId}`, data);
+	}
+
+	async deleteSavingsPocket(pocketId: string) {
+		return this.client.delete(`/savings-pockets/${pocketId}`);
+	}
+
+	async toggleSavingsPocketActive(pocketId: string) {
+		return this.client.put(`/savings-pockets/${pocketId}/toggle-active`, {});
+	}
+
+	async adjustSavingsPocketBalance(pocketId: string, data: {
+		amount: number;
+		reason?: string;
+	}) {
+		return this.client.post(`/savings-pockets/${pocketId}/adjust-balance`, data);
+	}
+
+	async assignTransferToPocket(transferId: string, pocketId: string) {
+		return this.client.post(`/transfers/${transferId}/assign-to-pocket`, { pocket_id: pocketId });
+	}
+
+	// User Settings API
+	async getUserSettings() {
+		return this.client.get('/user-settings');
+	}
+
+	async updateUserSettings(data: {
+		show_transaction_details?: boolean;
+		show_reference_number?: boolean;
+		show_payment_method?: boolean;
+		show_location?: boolean;
+		default_currency?: string;
+		date_format?: string;
+		number_format?: string;
+		default_account_for_transfers?: string;
+	}) {
+		return this.client.put('/user-settings', data);
 	}
 }
 

@@ -48,6 +48,7 @@ import {
 	ExpandMore,
 	Security,
 	TrendingUp,
+	Savings,
 	Warning,
 	NewReleases,
 	Settings as SettingsIcon,
@@ -104,6 +105,8 @@ const useMenuItems = (): MenuItem[] => {
 	const menuItems = [
 		{ text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
 		{ text: 'Accounts', icon: <AccountBalanceWallet />, path: '/accounts' },
+		{ text: 'Savings', icon: <AccountBalance />, path: '/savings' },
+		{ text: 'Savings Pockets', icon: <Savings />, path: '/savings-pockets' },
 
 		// Enhanced Transfer Section
 		{
@@ -115,6 +118,11 @@ const useMenuItems = (): MenuItem[] => {
 					icon: <TrendingUp />,
 					path: '/transfers',
 					badge: transferSuggestions > 0 ? transferSuggestions : undefined
+				},
+				{
+					text: 'Transfer Review',
+					icon: <RateReview />,
+					path: '/transfers/review'
 				},
 			]
 		},
@@ -180,12 +188,12 @@ const useMenuItems = (): MenuItem[] => {
 				{
 					text: 'Pattern Testing',
 					icon: <Psychology />,
-					path: '/vendor-pattern-test'
+					path: '/pattern-test'
 				},
 				{
 					text: 'Learned Patterns',
 					icon: <BugReport />,
-					path: '/learned-patterns'
+					path: '/patterns'
 				},
 			]
 		},
@@ -257,10 +265,23 @@ export default function Layout() {
 
 	const handleSubMenuToggle = (text: string) => {
 		setOpenSubMenus((prevState) => {
-			const newState = {
-				...prevState,
-				[text]: !prevState[text],
-			};
+			const isCurrentlyOpen = prevState[text];
+
+			// If clicking on an already open menu, just close it
+			if (isCurrentlyOpen) {
+				return {
+					...prevState,
+					[text]: false,
+				};
+			}
+
+			// If opening a new menu, close all others and open this one
+			const newState: { [key: string]: boolean } = {};
+			Object.keys(prevState).forEach(key => {
+				newState[key] = false;
+			});
+			newState[text] = true;
+
 			return newState;
 		});
 	};
@@ -291,7 +312,8 @@ export default function Layout() {
 
 		// Special handling for paths that might have subpaths but shouldn't match siblings
 		// Only allow startsWith for paths that are genuinely parent paths
-		if (path !== '/' && path !== '/upload') {
+		// Exclude transfer routes from startsWith logic since they're siblings, not parent-child
+		if (path !== '/' && path !== '/upload' && path !== '/transfers') {
 			return location.pathname.startsWith(path + '/');
 		}
 
@@ -488,12 +510,13 @@ export default function Layout() {
 						{location.pathname === '/categories' && 'Categories'}
 						{location.pathname === '/budgets' && 'Budget Planning'}
 						{location.pathname === '/transfers' && 'Transfers'}
+						{location.pathname === '/transfers/review' && 'Transfer Review'}
 						{location.pathname === '/review' && 'Transaction Review'}
 						{location.pathname === '/upload' && 'Upload Transactions'}
 						{location.pathname === '/upload-management' && 'Upload Management'}
 						{location.pathname === '/settings' && 'Settings'}
-						{location.pathname === '/vendor-pattern-test' && 'Pattern Testing'}
-						{location.pathname === '/learned-patterns' && 'Learned Patterns'}
+						{location.pathname === '/pattern-test' && 'Pattern Testing'}
+						{location.pathname === '/patterns' && 'Learned Patterns'}
 					</Typography>
 
 					{/* Action buttons */}

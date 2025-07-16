@@ -29,6 +29,9 @@ interface Account {
 	name: string;
 	balance: number;
 	currency: string;
+	is_active: boolean;
+	is_main_account: boolean;
+	account_classification: string;
 }
 
 interface BalanceEditDialogProps {

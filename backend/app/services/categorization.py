@@ -154,9 +154,9 @@ class CategorizationService:
             'atm': 'ATM Withdrawals',
             'geldautomat': 'ATM Withdrawals',
             'bancomat': 'ATM Withdrawals',
-            'transfer': 'Bank Transfers',
-            'überweisung': 'Bank Transfers',
-            'virement': 'Bank Transfers'
+            'transfer': 'Unknown Bank Transfers',
+            'überweisung': 'Unknown Bank Transfers',
+            'virement': 'Unknown Bank Transfers'
         }
         
         for pattern, category_name in category_mapping.items():
@@ -173,7 +173,7 @@ class CategorizationService:
         return self.db.query(Category).filter(
             Category.user_id == self.user_id,
             Category.category_type == CategoryType.MANUAL_REVIEW,
-            Category.name == 'Unknown Vendors'
+            Category.name == 'Manual Review'
         ).first()
     
     def categorize_transaction_and_learn(self, transaction_id: str, category_id: str, vendor_name: Optional[str] = None) -> Dict:
@@ -188,7 +188,7 @@ class CategorizationService:
         if not transaction:
             raise ValueError("Transaction not found")
         
-        # Get the category to check if learning is allowed
+        # Get the new category to check if learning is allowed
         category = self.db.query(Category).filter(
             Category.id == category_id,
             Category.user_id == self.user_id
@@ -196,6 +196,19 @@ class CategorizationService:
         
         if not category:
             raise ValueError("Category not found")
+        
+        # Check if transaction is being moved FROM a manual review category
+        previous_category = None
+        is_moving_from_manual_review = False
+        
+        if transaction.category_id:
+            previous_category = self.db.query(Category).filter(
+                Category.id == transaction.category_id,
+                Category.user_id == self.user_id
+            ).first()
+            
+            if previous_category and previous_category.category_type == CategoryType.MANUAL_REVIEW:
+                is_moving_from_manual_review = True
         
         # Extract and normalize the vendor part
         vendor_text = self.extract_vendor_from_description(transaction.description)
@@ -206,12 +219,24 @@ class CategorizationService:
         logger.info(f"  Extracted vendor: '{vendor_text}'")
         logger.info(f"  Normalized pattern: '{normalized_vendor}'")
         logger.info(f"  Category allows learning: {category.allow_auto_learning}")
+        logger.info(f"  Moving from manual review: {is_moving_from_manual_review}")
+        if previous_category:
+            logger.info(f"  Previous category: '{previous_category.name}' (type: {previous_category.category_type})")
         
         vendor = None
         similar_transactions_categorized = 0
         
-        # Only create/update vendor if category allows auto-learning
-        if category.allow_auto_learning and category.category_type != CategoryType.MANUAL_REVIEW:
+        # Only create/update vendor if:
+        # 1. Category allows auto-learning
+        # 2. New category is not manual review
+        # 3. NOT moving from manual review to final category (to prevent learning wrong patterns)
+        should_learn = (
+            category.allow_auto_learning and 
+            category.category_type != CategoryType.MANUAL_REVIEW and
+            not is_moving_from_manual_review
+        )
+        
+        if should_learn:
             # Create or update vendor with this pattern
             vendor = self._create_or_update_vendor_pattern(
                 vendor_name or self._generate_vendor_name(vendor_text),
@@ -241,13 +266,24 @@ class CategorizationService:
         
         self.db.commit()
         
+        # Determine learning status message
+        if not category.allow_auto_learning:
+            learning_status = "No pattern (category learning disabled)"
+        elif category.category_type == CategoryType.MANUAL_REVIEW:
+            learning_status = "No pattern (manual review category)"
+        elif is_moving_from_manual_review:
+            learning_status = "No pattern (moved from manual review)"
+        else:
+            learning_status = normalized_vendor if should_learn else "No pattern (learning disabled)"
+        
         return {
             "categorized_transaction": transaction_id,
             "vendor_created": vendor.name if vendor else "No vendor (learning disabled)",
             "similar_transactions_categorized": similar_transactions_categorized,
-            "pattern_learned": normalized_vendor if category.allow_auto_learning else "No pattern (learning disabled)",
+            "pattern_learned": learning_status,
             "vendor_text_extracted": vendor_text,
-            "learning_enabled": category.allow_auto_learning
+            "learning_enabled": should_learn,
+            "moved_from_manual_review": is_moving_from_manual_review
         }
     
     def _generate_vendor_name(self, vendor_text: str) -> str:

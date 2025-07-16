@@ -9,7 +9,7 @@ class UserPreferences(BaseModel):
     dashboardLayout: str = "default"
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class NotificationSettings(BaseModel):
     emailNotifications: bool = True
@@ -19,7 +19,7 @@ class NotificationSettings(BaseModel):
     securityAlerts: bool = True
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class GeneralSettings(BaseModel):
     user: UserPreferences
@@ -27,4 +27,4 @@ class GeneralSettings(BaseModel):
     transfers: TransferSettings
     
     class Config:
-        orm_mode = True
+        from_attributes = True

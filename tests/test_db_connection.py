@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = f"postgresql://{os.getenv('BUDGETLENS_DB_USER')}:{os.getenv('BUDGETLENS_DB_PASSWORD')}@localhost:5432/budgetlens_db"
+DATABASE_URL = f"postgresql://{os.getenv('BUDGETLENS_DB_USER')}:{os.getenv('BUDGETLENS_DB_PASSWORD')}@localhost:5432/budgetapp"
 try:
     engine = create_engine(DATABASE_URL)
     

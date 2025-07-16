@@ -14,7 +14,10 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
+import Savings from './pages/Savings';
+import { SavingsPockets } from './pages/SavingsPockets';
 import Transfers from './pages/Transfers';
+import { TransferReview } from './pages/TransferReview';
 // import EnhancedTransfers from './pages/Transfers';
 import Settings from './pages/Settings';
 import TransferSettingsRedirect from './pages/TransferSettingsRedirect';
@@ -140,10 +143,13 @@ function App() {
 									<Route index element={<Navigate to="/dashboard" replace />} />
 									<Route path="dashboard" element={<Dashboard />} />
 									<Route path="accounts" element={<Accounts />} />
+									<Route path="savings" element={<Savings />} />
+									<Route path="savings-pockets" element={<SavingsPockets />} />
 
 									{/* Enhanced Transfer Routes */}
 									<Route path="transfers" element={<Transfers />} />
 									<Route path="transfers/legacy" element={<Transfers />} />
+									<Route path="transfers/review" element={<TransferReview />} />
 									<Route path="transfers/settings" element={<TransferSettingsRedirect />} />
 
 									{/* General Settings */}

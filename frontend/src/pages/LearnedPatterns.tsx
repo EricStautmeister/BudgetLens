@@ -58,7 +58,7 @@ export default function LearnedPatterns() {
 							</TableRow>
 						</TableHead>
 						<TableBody>
-							{patterns?.learned_patterns?.map((pattern: any) => (
+							{patterns?.learned_patterns && Array.isArray(patterns.learned_patterns) ? patterns.learned_patterns.map((pattern: any) => (
 								<TableRow key={pattern.vendor_id}>
 									<TableCell>
 										<Typography variant="body1" fontWeight="medium">
@@ -66,15 +66,15 @@ export default function LearnedPatterns() {
 										</Typography>
 									</TableCell>
 									<TableCell>
-										<Chip 
-											label={pattern.category_name || 'No category'} 
-											color="primary" 
-											size="small" 
+										<Chip
+											label={pattern.category_name || 'No category'}
+											color="primary"
+											size="small"
 										/>
 									</TableCell>
 									<TableCell>
 										<Box display="flex" flexWrap="wrap" gap={1}>
-											{pattern.patterns?.map((p: string, index: number) => (
+											{pattern.patterns && Array.isArray(pattern.patterns) ? pattern.patterns.map((p: string, index: number) => (
 												<Chip
 													key={index}
 													label={p}
@@ -82,7 +82,7 @@ export default function LearnedPatterns() {
 													size="small"
 													sx={{ fontFamily: 'monospace' }}
 												/>
-											))}
+											)) : null}
 										</Box>
 									</TableCell>
 									<TableCell>
@@ -93,7 +93,7 @@ export default function LearnedPatterns() {
 										/>
 									</TableCell>
 								</TableRow>
-							))}
+							)) : null}
 						</TableBody>
 					</Table>
 				</TableContainer>

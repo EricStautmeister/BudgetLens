@@ -11,6 +11,7 @@ class CategoryType(str, Enum):
     EXPENSE = "EXPENSE"
     SAVING = "SAVING"
     MANUAL_REVIEW = "MANUAL_REVIEW"
+    TRANSFER = "TRANSFER"
 
 class CategoryBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -75,6 +76,7 @@ class CategoryHierarchy(BaseModel):
     expense: List[Category] = []
     saving: List[Category] = []
     manual_review: List[Category] = []
+    transfer: List[Category] = []
 
 class CategoryStats(BaseModel):
     """Category statistics for analytics"""

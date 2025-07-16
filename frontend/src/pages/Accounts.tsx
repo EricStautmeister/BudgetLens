@@ -43,10 +43,12 @@ import {
 	Star,
 	StarBorder,
 	EditNote, // Added for balance edit icon
+	MonetizationOn, // Added for savings pockets
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
 import { BalanceEditDialog } from '../components/BalanceEditDialog'; // Import the new component
+import { SavingsAccountMappingDialog } from '../components/SavingsAccountMappingDialog'; // Import savings dialog
 
 interface Account {
 	id: string;
@@ -59,6 +61,9 @@ interface Account {
 	balance: number;
 	transaction_count: number;
 	created_at: string;
+	is_active: boolean;
+	is_main_account: boolean;
+	account_classification: string;
 }
 
 const accountTypeLabels = {
@@ -90,11 +95,14 @@ export default function Accounts() {
 	const { enqueueSnackbar } = useSnackbar();
 	const [open, setOpen] = useState(false);
 	const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-	
+
 	// NEW: Balance editing state
 	const [balanceEditOpen, setBalanceEditOpen] = useState(false);
 	const [editingBalanceAccount, setEditingBalanceAccount] = useState<Account | null>(null);
-	
+
+	// NEW: Savings pocket management state
+	const [savingsDialogOpen, setSavingsDialogOpen] = useState(false);
+
 	const [formData, setFormData] = useState({
 		name: '',
 		account_type: 'CHECKING' as Account['account_type'],
@@ -205,7 +213,7 @@ export default function Accounts() {
 	};
 
 	const getTotalBalance = () => {
-		if (!accounts) return 0;
+		if (!accounts || !Array.isArray(accounts)) return 0;
 		return accounts.reduce((total, account) => total + account.balance, 0);
 	};
 
@@ -263,7 +271,7 @@ export default function Accounts() {
 								Total Transactions
 							</Typography>
 							<Typography variant="h4">
-								{accounts?.reduce((total, account) => total + account.transaction_count, 0) || 0}
+								{(accounts && Array.isArray(accounts)) ? accounts.reduce((total, account) => total + account.transaction_count, 0) : 0}
 							</Typography>
 						</CardContent>
 					</Card>
@@ -285,7 +293,7 @@ export default function Accounts() {
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{accounts?.map((account) => (
+						{(accounts && Array.isArray(accounts)) ? accounts.map((account) => (
 							<TableRow key={account.id}>
 								<TableCell>
 									<Box display="flex" alignItems="center" gap={1}>
@@ -319,8 +327,8 @@ export default function Accounts() {
 											fontWeight="medium">
 											{formatCurrency(account.balance, account.currency)}
 										</Typography>
-										<IconButton 
-											size="small" 
+										<IconButton
+											size="small"
 											onClick={() => handleEditBalance(account)}
 											title="Edit balance">
 											<EditNote fontSize="small" />
@@ -360,12 +368,12 @@ export default function Accounts() {
 									</IconButton>
 								</TableCell>
 							</TableRow>
-						))}
+						)) : []}
 					</TableBody>
 				</Table>
 			</TableContainer>
 
-			{accounts?.length === 0 && (
+			{(accounts && Array.isArray(accounts) && accounts.length === 0) && (
 				<Paper sx={{ p: 3, textAlign: 'center', mt: 2 }}>
 					<AccountBalance sx={{ fontSize: 48, color: 'action.disabled', mb: 2 }} />
 					<Typography variant="h6" color="textSecondary" gutterBottom>
@@ -377,6 +385,30 @@ export default function Accounts() {
 					<Button variant="contained" startIcon={<Add />} onClick={() => handleOpen()}>
 						Create First Account
 					</Button>
+				</Paper>
+			)}
+
+			{/* Savings Pocket Management Section */}
+			{(accounts && Array.isArray(accounts) && accounts.length > 0) && (
+				<Paper sx={{ p: 3, mt: 3 }}>
+					<Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>					<Box display="flex" alignItems="center" gap={2}>
+						<MonetizationOn color="primary" />
+						<Typography variant="h6">Savings Pocket Management</Typography>
+					</Box>
+						<Button
+							variant="outlined"
+							startIcon={<Savings />}
+							onClick={() => setSavingsDialogOpen(true)}
+						>
+							Manage Savings Mappings
+						</Button>
+					</Box>
+					<Alert severity="info">
+						<Typography variant="body2">
+							Map your savings categories to specific accounts to track your savings goals.
+							This helps you understand which account holds money for each savings goal.
+						</Typography>
+					</Alert>
 				</Paper>
 			)}
 
@@ -479,6 +511,12 @@ export default function Accounts() {
 				open={balanceEditOpen}
 				onClose={handleCloseBalanceEdit}
 				account={editingBalanceAccount}
+			/>
+
+			{/* NEW: Savings Account Mapping Dialog */}
+			<SavingsAccountMappingDialog
+				open={savingsDialogOpen}
+				onClose={() => setSavingsDialogOpen(false)}
 			/>
 		</Box>
 	);

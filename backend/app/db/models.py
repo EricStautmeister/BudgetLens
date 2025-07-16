@@ -14,6 +14,7 @@ class CategoryType(PyEnum):
     EXPENSE = "EXPENSE" 
     SAVING = "SAVING"
     MANUAL_REVIEW = "MANUAL_REVIEW"
+    TRANSFER = "TRANSFER"
 
 # Account Types Enum (existing)
 class AccountType(PyEnum):
@@ -46,6 +47,11 @@ class User(Base):
     csv_mappings = relationship("CSVMapping", back_populates="user")
     accounts = relationship("Account", back_populates="user")
     transfers = relationship("Transfer", back_populates="user")  # FIXED: Added missing transfers relationship
+    transfer_patterns = relationship("TransferPattern", back_populates="user")  # NEW: Added transfer patterns relationship
+    
+    # NEW: Enhanced savings system relationships
+    user_settings = relationship("UserSettings", back_populates="user", uselist=False)
+    savings_pockets = relationship("SavingsPocket")  # Direct relationship to user's savings pockets
 
 class Account(Base):
     __tablename__ = "accounts"
@@ -59,6 +65,11 @@ class Account(Base):
     currency = Column(String(3), default="CHF")
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=False)
+    
+    # NEW: Account classification for savings system
+    is_main_account = Column(Boolean, default=False)  # Only one main account per user
+    account_classification = Column(String(50), default="general")  # "main", "savings", "investment", etc.
+    
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
@@ -67,6 +78,9 @@ class Account(Base):
     transactions = relationship("Transaction", back_populates="account")
     outgoing_transfers = relationship("Transfer", foreign_keys="Transfer.from_account_id", back_populates="from_account")
     incoming_transfers = relationship("Transfer", foreign_keys="Transfer.to_account_id", back_populates="to_account")
+    
+    # NEW: Savings pockets relationship
+    savings_pockets = relationship("SavingsPocket", back_populates="account")
     
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='_user_account_name_uc'),
@@ -99,6 +113,45 @@ class Transfer(Base):
     to_account = relationship("Account", foreign_keys=[to_account_id], back_populates="incoming_transfers")
     from_transaction = relationship("Transaction", foreign_keys=[from_transaction_id], back_populates="outgoing_transfer")
     to_transaction = relationship("Transaction", foreign_keys=[to_transaction_id], back_populates="incoming_transfer")
+    
+    # NEW: Transfer allocations
+    allocations = relationship("TransferAllocation", back_populates="transfer")
+
+class TransferPattern(Base):
+    """Model for storing learned transfer patterns"""
+    __tablename__ = "transfer_patterns"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    pattern_name = Column(String(255), nullable=False)
+    
+    # Pattern matching criteria
+    from_account_pattern = Column(String(255))  # Pattern in from account name/type
+    to_account_pattern = Column(String(255))    # Pattern in to account name/type
+    description_pattern = Column(String(255))   # Pattern in description
+    amount_pattern = Column(String(100))        # e.g., "fixed:1000", "range:100-200"
+    
+    # Learned characteristics
+    typical_amount = Column(Numeric(12, 2))
+    amount_tolerance = Column(Float, default=0.05)  # 5% tolerance
+    max_days_between = Column(Integer, default=3)   # Max days between transactions
+    
+    # Pattern metadata
+    confidence_threshold = Column(Float, default=0.8)
+    auto_confirm = Column(Boolean, default=False)
+    times_matched = Column(Integer, default=0)
+    last_matched = Column(DateTime)
+    
+    # Learning state
+    is_active = Column(Boolean, default=True)
+    created_from_transfer_id = Column(UUID(as_uuid=True), ForeignKey("transfers.id"))
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="transfer_patterns")
+    created_from_transfer = relationship("Transfer", backref="learned_pattern")
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -123,7 +176,17 @@ class Transaction(Base):
     upload_batch_id = Column(String(50))  # Track which upload created this
     original_description = Column(Text)   # Store original before any processing
     processing_notes = Column(JSON)       # Store processing metadata
-
+    
+    # NEW: Enhanced transaction data for savings system
+    details = Column(Text)  # Additional transaction details/notes
+    reference_number = Column(String(100))  # Transaction reference
+    payment_method = Column(String(50))  # Card, transfer, cash, etc.
+    merchant_category = Column(String(100))  # MCC or similar
+    location = Column(String(255))  # Transaction location if available
+    
+    # NEW: Savings pocket assignment
+    savings_pocket_id = Column(UUID(as_uuid=True), ForeignKey("savings_pockets.id"))
+    
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
@@ -134,6 +197,9 @@ class Transaction(Base):
     category = relationship("Category", back_populates="transactions")
     outgoing_transfer = relationship("Transfer", foreign_keys="Transfer.from_transaction_id", back_populates="from_transaction")
     incoming_transfer = relationship("Transfer", foreign_keys="Transfer.to_transaction_id", back_populates="to_transaction")
+    
+    # NEW: Savings pocket relationship
+    savings_pocket = relationship("SavingsPocket", back_populates="transactions")
 
 class Vendor(Base):
     __tablename__ = "vendors"
@@ -192,6 +258,10 @@ class Category(Base):
     children = relationship("Category", back_populates="parent")
     transactions = relationship("Transaction", back_populates="category")
     budget_periods = relationship("BudgetPeriod", back_populates="category")
+    
+    # NEW: Savings account mappings
+    savings_mappings = relationship("SavingsAccountMapping", back_populates="savings_category")
+    transfer_allocations = relationship("TransferAllocation", back_populates="allocated_category")
 
 class BudgetPeriod(Base):
     __tablename__ = "budget_periods"
@@ -300,3 +370,128 @@ class RateLimitLog(Base):
     
     # Relationships
     user = relationship("User")
+
+# NEW: Savings Pockets - Custom savings categories within accounts
+class SavingsPocket(Base):
+    __tablename__ = "savings_pockets"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False)
+    
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    target_amount = Column(Numeric(12, 2))
+    current_amount = Column(Numeric(12, 2), default=0)
+    
+    # Pocket settings
+    is_active = Column(Boolean, default=True)
+    color = Column(String(7))  # Hex color for UI
+    icon = Column(String(50))  # Icon identifier
+    sort_order = Column(Integer, default=0)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    account = relationship("Account", back_populates="savings_pockets")
+    transactions = relationship("Transaction", back_populates="savings_pocket")
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'account_id', 'name', name='_user_account_pocket_name_uc'),
+    )
+
+# NEW: User Settings - Global application settings
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Data display preferences
+    transaction_data_view = Column(String(50), default="standard")  # "minimal", "standard", "detailed"
+    show_transaction_details = Column(Boolean, default=True)
+    show_reference_numbers = Column(Boolean, default=False)
+    show_payment_methods = Column(Boolean, default=True)
+    show_merchant_categories = Column(Boolean, default=False)
+    show_location_data = Column(Boolean, default=False)
+    
+    # Transfer detection settings
+    transfer_detection_enabled = Column(Boolean, default=True)
+    auto_confirm_threshold = Column(Float, default=0.9)
+    transfer_pattern_learning = Column(Boolean, default=True)
+    
+    # Savings system settings
+    default_savings_view = Column(String(50), default="by_account")  # "by_account", "by_category", "unified"
+    show_savings_progress = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="user_settings")
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', name='_user_settings_uc'),
+    )
+
+# NEW: Savings Account Mapping - Links savings categories to bank accounts
+class SavingsAccountMapping(Base):
+    __tablename__ = "savings_account_mappings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    savings_category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False)
+    
+    # Optional: Set target amounts and track progress
+    target_amount = Column(Numeric(12, 2))
+    current_amount = Column(Numeric(12, 2), default=0)
+    
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    savings_category = relationship("Category", back_populates="savings_mappings")
+    account = relationship("Account")
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'savings_category_id', 'account_id', name='_user_savings_account_uc'),
+    )
+
+# NEW: Transfer Allocations - Links transfers to specific savings categories or other purposes
+class TransferAllocation(Base):
+    __tablename__ = "transfer_allocations"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    transfer_id = Column(UUID(as_uuid=True), ForeignKey("transfers.id"), nullable=False)
+    
+    # What this transfer is allocated to - can be category or savings pocket
+    allocated_category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"))  # Can be savings, expense, etc.
+    allocated_pocket_id = Column(UUID(as_uuid=True), ForeignKey("savings_pockets.id"))  # NEW: Direct pocket allocation
+    allocated_amount = Column(Numeric(12, 2), nullable=False)
+    
+    # Allocation metadata
+    allocation_type = Column(String(50), default="manual")  # manual, automatic, rule-based
+    description = Column(Text)  # User notes about this allocation
+    
+    # NEW: Enhanced allocation tracking
+    auto_confirmed = Column(Boolean, default=False)  # Whether this was auto-confirmed
+    confidence_score = Column(Float)  # Confidence in automatic allocation
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    transfer = relationship("Transfer", back_populates="allocations")
+    allocated_category = relationship("Category", back_populates="transfer_allocations")
+    allocated_pocket = relationship("SavingsPocket")  # NEW: Direct pocket relationship
+    
+    __table_args__ = (
+        UniqueConstraint('transfer_id', 'allocated_category_id', name='_transfer_category_allocation_uc'),
+    )

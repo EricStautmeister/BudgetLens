@@ -1,18 +1,17 @@
-# backend/app/schemas/account.py - Fixed enum values to match database
-
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, List
+from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
 from enum import Enum
-from decimal import Decimal
 
+# Define AccountType enum directly here to avoid circular import
 class AccountType(str, Enum):
-    CHECKING = "CHECKING"          # Changed from "checking" to "CHECKING"
-    SAVINGS = "SAVINGS"            # Changed from "savings" to "SAVINGS"
-    CREDIT_CARD = "CREDIT_CARD"    # Changed from "credit_card" to "CREDIT_CARD"
-    INVESTMENT = "INVESTMENT"      # Changed from "investment" to "INVESTMENT"
-    LOAN = "LOAN"                  # Changed from "loan" to "LOAN"
+    CHECKING = "CHECKING"
+    SAVINGS = "SAVINGS"
+    CREDIT_CARD = "CREDIT_CARD"
+    INVESTMENT = "INVESTMENT"
+    LOAN = "LOAN"
 
 class AccountBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -20,8 +19,12 @@ class AccountBase(BaseModel):
     institution: Optional[str] = Field(None, max_length=255)
     account_number_last4: Optional[str] = Field(None, min_length=4, max_length=4)
     currency: str = Field(default="CHF", max_length=3)
-    is_active: bool = Field(default=True)
-    is_default: bool = Field(default=False)
+    is_active: bool = True
+    is_default: bool = False
+    
+    # NEW: Enhanced account fields
+    is_main_account: bool = False
+    account_classification: str = Field(default="general", max_length=50)
 
     @field_validator('account_number_last4')
     @classmethod
@@ -34,6 +37,14 @@ class AccountBase(BaseModel):
     @classmethod
     def validate_currency(cls, v):
         return v.upper()
+    
+    @field_validator('account_classification')
+    @classmethod
+    def validate_classification(cls, v):
+        valid_classifications = ['main', 'savings', 'investment', 'checking', 'credit', 'general']
+        if v not in valid_classifications:
+            raise ValueError(f'account_classification must be one of: {valid_classifications}')
+        return v
 
 class AccountCreate(AccountBase):
     pass
@@ -46,6 +57,8 @@ class AccountUpdate(BaseModel):
     currency: Optional[str] = Field(None, max_length=3)
     is_active: Optional[bool] = None
     is_default: Optional[bool] = None
+    is_main_account: Optional[bool] = None
+    account_classification: Optional[str] = Field(None, max_length=50)
 
     @field_validator('account_number_last4')
     @classmethod
@@ -61,36 +74,82 @@ class AccountUpdate(BaseModel):
             return v.upper()
         return v
 
-# Simple schema without relationships to avoid recursion
-class Account(BaseModel):
+    @field_validator('account_classification')
+    @classmethod
+    def validate_classification(cls, v):
+        if v is not None:
+            valid_classifications = ['main', 'savings', 'investment', 'checking', 'credit', 'general']
+            if v not in valid_classifications:
+                raise ValueError(f'account_classification must be one of: {valid_classifications}')
+        return v
+
+class Account(AccountBase):
     id: UUID
     user_id: UUID
-    name: str
-    account_type: AccountType
-    institution: Optional[str] = None
-    account_number_last4: Optional[str] = None
-    currency: str
-    is_active: bool
-    is_default: bool
+    balance: Decimal
+    transaction_count: int
     created_at: datetime
     updated_at: datetime
-    # Optional calculated fields
-    balance: Optional[float] = None
-    transaction_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+# Balance management schemas
+class BalanceAdjustment(BaseModel):
+    """Schema for manual balance adjustments"""
+    adjustment_amount: Decimal = Field(..., description="Amount to adjust (positive or negative)")
+    adjustment_type: str = Field(..., description="Type of adjustment")
+    description: Optional[str] = Field(None, max_length=500, description="Description of the adjustment")
+    
+    @field_validator('adjustment_type')
+    @classmethod
+    def validate_adjustment_type(cls, v):
+        valid_types = ['manual', 'correction', 'interest', 'fee', 'other']
+        if v not in valid_types:
+            raise ValueError(f'adjustment_type must be one of: {valid_types}')
+        return v
+
+class BalanceUpdate(BaseModel):
+    """Schema for direct balance updates"""
+    new_balance: Decimal = Field(..., description="New balance amount")
+    description: Optional[str] = Field(None, max_length=500, description="Description of the update")
+
+class AccountWithBalance(Account):
+    """Enhanced account schema with balance information"""
+    recent_transactions: Optional[List[dict]] = Field(default_factory=list)
+    monthly_summary: Optional[dict] = None
+    
+class AccountSummary(BaseModel):
+    """Summary information for accounts"""
+    id: UUID
+    name: str
+    account_type: AccountType
+    balance: Decimal
+    currency: str
+    is_active: bool
+    is_main_account: bool
+    account_classification: str
+    transaction_count: int
     
     class Config:
         from_attributes = True
 
-class BalanceAdjustment(BaseModel):
-    amount: Decimal = Field(..., description="Amount to adjust (positive for increase, negative for decrease)")
-    description: Optional[str] = Field(None, max_length=255, description="Reason for adjustment")
+# Response schemas
+class AccountResponse(BaseModel):
+    """Standard account response"""
+    account: Account
+    message: str = "Account retrieved successfully"
 
-class BalanceUpdate(BaseModel):
-    new_balance: Decimal = Field(..., description="New balance to set")
-    as_of_date: Optional[datetime] = Field(None, description="Date the balance was accurate (defaults to today)")
-    description: Optional[str] = Field(None, max_length=255, description="Reason for balance update")
+class AccountListResponse(BaseModel):
+    """List of accounts response"""
+    accounts: List[Account]
+    total_count: int
+    message: str = "Accounts retrieved successfully"
 
-# Add to existing Account schema
-class AccountWithBalance(Account):
-    current_balance: float
-    can_edit_balance: bool = True
+class BalanceAdjustmentResponse(BaseModel):
+    """Balance adjustment response"""
+    account: Account
+    adjustment: BalanceAdjustment
+    old_balance: Decimal
+    new_balance: Decimal
+    message: str = "Balance adjusted successfully"

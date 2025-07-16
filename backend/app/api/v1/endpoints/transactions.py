@@ -24,6 +24,7 @@ async def list_transactions(
     account_id: Optional[str] = Query(None),
     needs_review: Optional[str] = Query(None),
     exclude_transfers: bool = Query(False, description="Exclude transfer transactions"),
+    search: Optional[str] = Query(None, description="Search in transaction descriptions, vendor names, and details"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -83,8 +84,20 @@ async def list_transactions(
     if exclude_transfers:
         query = query.filter(Transaction.is_transfer == False)
     
+    # Handle search parameter
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        query = query.filter(
+            Transaction.description.ilike(search_term) |
+            Transaction.details.ilike(search_term) |
+            Transaction.reference_number.ilike(search_term) |
+            Transaction.location.ilike(search_term)
+        )
+    
     # Debug: Log the final query construction
     logger.info(f"🔍 TRANSACTIONS DEBUG: About to execute query with date range: {start_date} to {end_date}")
+    if search:
+        logger.info(f"🔍 TRANSACTIONS DEBUG: Search term: '{search}'")
     
     transactions = query.order_by(Transaction.date.desc()).offset(skip).limit(limit).all()
     
@@ -173,6 +186,44 @@ async def categorize_transaction(
         db.refresh(transaction)
         
         return {"message": "Transaction categorized successfully"}
+
+@router.put("/{transaction_id}")
+async def update_transaction(
+    transaction_id: UUID,
+    update: TransactionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update a transaction with new information"""
+    # Validate that the user owns the transaction
+    transaction = validate_user_owns_resource(
+        db, str(current_user.id), str(transaction_id), Transaction
+    )
+    
+    # Update fields if provided
+    if update.vendor_id is not None:
+        transaction.vendor_id = update.vendor_id
+    if update.category_id is not None:
+        transaction.category_id = update.category_id
+    if update.is_transfer is not None:
+        transaction.is_transfer = update.is_transfer
+    if update.details is not None:
+        transaction.details = update.details
+    if update.reference_number is not None:
+        transaction.reference_number = update.reference_number
+    if update.payment_method is not None:
+        transaction.payment_method = update.payment_method
+    if update.merchant_category is not None:
+        transaction.merchant_category = update.merchant_category
+    if update.location is not None:
+        transaction.location = update.location
+    if update.savings_pocket_id is not None:
+        transaction.savings_pocket_id = update.savings_pocket_id
+    
+    db.commit()
+    db.refresh(transaction)
+    
+    return {"message": "Transaction updated successfully"}
 
 @router.get("/{transaction_id}/vendor-suggestions")
 async def get_vendor_suggestions(

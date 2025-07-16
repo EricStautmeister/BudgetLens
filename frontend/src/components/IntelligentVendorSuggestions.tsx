@@ -187,7 +187,7 @@ const IntelligentVendorSuggestions: React.FC<Props> = ({
                     Matching pattern: <strong>{suggestion.matching_ngram}</strong>
                 </Typography>
 
-                {suggestion.potential_siblings && suggestion.potential_siblings.length > 0 && (
+                {suggestion.potential_siblings && Array.isArray(suggestion.potential_siblings) && suggestion.potential_siblings.length > 0 && (
                     <Accordion>
                         <AccordionSummary expandIcon={<ExpandMore />}>
                             <Typography variant="body2">
@@ -224,7 +224,7 @@ const IntelligentVendorSuggestions: React.FC<Props> = ({
     );
 
     const renderNgramAnalysis = () => {
-        if (!analysis?.top_ngrams || analysis.top_ngrams.length === 0) return null;
+        if (!analysis?.top_ngrams || !Array.isArray(analysis.top_ngrams) || analysis.top_ngrams.length === 0) return null;
 
         return (
             <Box>
@@ -295,7 +295,7 @@ const IntelligentVendorSuggestions: React.FC<Props> = ({
                     </Alert>
                 )}
 
-                {hierarchy_analysis.potential_children && hierarchy_analysis.potential_children.length > 0 && (
+                {hierarchy_analysis.potential_children && Array.isArray(hierarchy_analysis.potential_children) && hierarchy_analysis.potential_children.length > 0 && (
                     <Box>
                         <Typography variant="subtitle2" gutterBottom>
                             Potential Related Vendors:
@@ -357,7 +357,7 @@ const IntelligentVendorSuggestions: React.FC<Props> = ({
                                 onClick={() => setSelectedTab('suggestions')}
                                 startIcon={<Group />}
                             >
-                                Suggestions ({analysis.existing_vendor_matches.length})
+                                Suggestions ({analysis.existing_vendor_matches && Array.isArray(analysis.existing_vendor_matches) ? analysis.existing_vendor_matches.length : 0})
                             </Button>
                             <Button
                                 variant={selectedTab === 'analysis' ? 'contained' : 'outlined'}
@@ -378,7 +378,7 @@ const IntelligentVendorSuggestions: React.FC<Props> = ({
                         {/* Tab Content */}
                         {selectedTab === 'suggestions' && (
                             <Box>
-                                {analysis.existing_vendor_matches.length > 0 ? (
+                                {analysis.existing_vendor_matches && Array.isArray(analysis.existing_vendor_matches) && analysis.existing_vendor_matches.length > 0 ? (
                                     <Box>
                                         <Typography variant="h6" gutterBottom>
                                             Suggested Vendors

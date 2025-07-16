@@ -11,7 +11,10 @@ from app.api.v1.endpoints import (
     accounts, 
     transfers,  # Make sure this is included
     upload_management,
-    settings
+    settings,
+    savings,
+    savings_pockets,
+    user_settings
 )
 
 api_router = APIRouter()
@@ -27,3 +30,6 @@ api_router.include_router(budgets.router, prefix="/budgets", tags=["budgets"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 api_router.include_router(upload_management.router, prefix="/upload-management", tags=["upload-management"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+api_router.include_router(savings.router, prefix="/savings", tags=["savings"])
+api_router.include_router(savings_pockets.router, prefix="/savings-pockets", tags=["savings-pockets"])
+api_router.include_router(user_settings.router, prefix="/user-settings", tags=["user-settings"])

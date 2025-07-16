@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str
+    BUDGETLENS_DB_USER: Optional[str] = None
+    BUDGETLENS_DB_PASSWORD: Optional[str] = None
     
     # Security
     SECRET_KEY: str

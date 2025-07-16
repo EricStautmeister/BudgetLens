@@ -6,6 +6,7 @@ from sqlalchemy import func, desc, and_
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 from app.db.models import Account, Transaction, Transfer, User
+from .transfer_learning import TransferLearningService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,24 +62,329 @@ class TransferService:
     def __init__(self, db: Session, user_id: str):
         self.db = db
         self.user_id = user_id
+        self.learning_service = TransferLearningService(db, user_id)
     
     def get_transfer_suggestions(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get suggested transfer pairs for manual review"""
+        """Get transfer suggestions using learned patterns and fallback heuristics"""
         try:
+            # First, try to get suggestions from learned patterns
+            pattern_suggestions = self.learning_service.find_potential_transfers_by_patterns()
+            
+            # If we have enough pattern suggestions, use them
+            if len(pattern_suggestions) >= limit:
+                return pattern_suggestions[:limit]
+            
+            # Otherwise, combine pattern suggestions with heuristic suggestions
+            heuristic_suggestions = self._get_heuristic_suggestions(limit - len(pattern_suggestions))
+            
+            # Combine and deduplicate
+            all_suggestions = pattern_suggestions + heuristic_suggestions
+            unique_suggestions = self._deduplicate_suggestions(all_suggestions)
+            
+            # Sort by confidence and limit
+            unique_suggestions.sort(key=lambda x: x['confidence'], reverse=True)
+            return unique_suggestions[:limit]
+            
+        except Exception as e:
+            logger.error(f"Error getting transfer suggestions: {e}")
+            return []
+    
+    def create_transfer_with_learning(self, from_transaction_id: str, to_transaction_id: str, 
+                                    description: str = None, learn_pattern: bool = True) -> Dict[str, Any]:
+        """Create a transfer and optionally learn from the pattern"""
+        try:
+            from app.db.models import Transaction, Transfer
+            
+            # Get transactions
+            from_tx = self.db.query(Transaction).filter(
+                Transaction.id == from_transaction_id,
+                Transaction.user_id == self.user_id
+            ).first()
+            
+            to_tx = self.db.query(Transaction).filter(
+                Transaction.id == to_transaction_id,
+                Transaction.user_id == self.user_id
+            ).first()
+            
+            if not from_tx or not to_tx:
+                raise ValueError("One or both transactions not found")
+            
+            # Create transfer
+            transfer = Transfer(
+                user_id=self.user_id,
+                from_account_id=from_tx.account_id,
+                to_account_id=to_tx.account_id,
+                from_transaction_id=from_transaction_id,
+                to_transaction_id=to_transaction_id,
+                amount=abs(from_tx.amount),
+                date=from_tx.date,
+                description=description or f"Transfer: {from_tx.description}",
+                is_confirmed=True,
+                detection_method="manual",
+                confidence_score=1.0
+            )
+            
+            self.db.add(transfer)
+            self.db.commit()
+            self.db.refresh(transfer)
+            
+            # Learn pattern if requested
+            if learn_pattern:
+                try:
+                    self.learning_service.learn_from_manual_transfer(transfer)
+                    logger.info(f"Successfully learned pattern from transfer {transfer.id}")
+                except Exception as e:
+                    logger.error(f"Error learning pattern from transfer {transfer.id}: {e}")
+            
+            return {
+                "transfer_id": str(transfer.id),
+                "message": "Transfer created successfully",
+                "pattern_learned": learn_pattern
+            }
+            
+        except Exception as e:
+            logger.error(f"Error creating transfer with learning: {e}")
+            self.db.rollback()
+            raise
+    
+    def detect_transfers_with_pockets(self, include_pocket_assignments: bool = True) -> Dict[str, Any]:
+        """Enhanced transfer detection with savings pocket awareness"""
+        try:
+            # Get user settings for confidence thresholds
+            from app.db.models import UserSettings
+            user_settings = self.db.query(UserSettings).filter(
+                UserSettings.user_id == self.user_id
+            ).first()
+            
+            auto_confirm_threshold = user_settings.auto_confirm_threshold if user_settings else 0.9
+            
+            # Get basic transfer detection results
+            base_results = self.detect_potential_transfers_enhanced()
+            
+            # Enhance with savings pocket suggestions
+            enhanced_suggestions = []
+            
+            for suggestion in base_results.get('potential_transfers', []):
+                enhanced_suggestion = suggestion.copy()
+                
+                if include_pocket_assignments:
+                    # Try to suggest savings pocket assignments
+                    pocket_suggestions = self._suggest_savings_pocket_assignments(suggestion)
+                    enhanced_suggestion['pocket_suggestions'] = pocket_suggestions
+                
+                # Auto-confirm if confidence is high enough
+                if suggestion['confidence'] >= auto_confirm_threshold:
+                    enhanced_suggestion['auto_confirm_eligible'] = True
+                else:
+                    enhanced_suggestion['auto_confirm_eligible'] = False
+                
+                enhanced_suggestions.append(enhanced_suggestion)
+            
+            return {
+                "potential_transfers": enhanced_suggestions,
+                "auto_matched": base_results.get('auto_matched', 0),
+                "manual_review_needed": base_results.get('manual_review_needed', 0),
+                "auto_confirm_eligible": len([s for s in enhanced_suggestions if s.get('auto_confirm_eligible', False)])
+            }
+            
+        except Exception as e:
+            logger.error(f"Error detecting transfers with pockets: {e}")
+            return {
+                "potential_transfers": [],
+                "auto_matched": 0,
+                "manual_review_needed": 0,
+                "auto_confirm_eligible": 0
+            }
+    
+    def _suggest_savings_pocket_assignments(self, transfer_suggestion: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Suggest savings pocket assignments for a transfer"""
+        try:
+            from app.db.models import SavingsPocket, Account
+            
+            # Get accounts involved in the transfer
+            from_account_id = transfer_suggestion['from_transaction'].get('account_id')
+            to_account_id = transfer_suggestion['to_transaction'].get('account_id')
+            
+            suggestions = []
+            
+            # Look for savings pockets in the destination account
+            if to_account_id:
+                to_account = self.db.query(Account).filter(
+                    Account.id == to_account_id,
+                    Account.user_id == self.user_id
+                ).first()
+                
+                if to_account and not to_account.is_main_account:
+                    # Get savings pockets for this account
+                    pockets = self.db.query(SavingsPocket).filter(
+                        SavingsPocket.account_id == to_account_id,
+                        SavingsPocket.user_id == self.user_id,
+                        SavingsPocket.is_active == True
+                    ).all()
+                    
+                    for pocket in pockets:
+                        # Calculate how well this pocket might match
+                        confidence = self._calculate_pocket_assignment_confidence(
+                            transfer_suggestion, pocket
+                        )
+                        
+                        if confidence > 0.3:  # Only suggest if somewhat confident
+                            suggestions.append({
+                                'pocket_id': str(pocket.id),
+                                'pocket_name': pocket.name,
+                                'confidence': confidence,
+                                'reason': self._get_pocket_suggestion_reason(transfer_suggestion, pocket)
+                            })
+            
+            # Sort by confidence
+            suggestions.sort(key=lambda x: x['confidence'], reverse=True)
+            return suggestions[:3]  # Return top 3 suggestions
+            
+        except Exception as e:
+            logger.error(f"Error suggesting savings pocket assignments: {e}")
+            return []
+    
+    def _calculate_pocket_assignment_confidence(self, transfer_suggestion: Dict[str, Any], 
+                                               pocket: 'SavingsPocket') -> float:
+        """Calculate confidence for assigning a transfer to a savings pocket"""
+        confidence = 0.0
+        
+        # Check if transfer description matches pocket name or description
+        transfer_desc = transfer_suggestion['from_transaction'].get('description', '').lower()
+        pocket_name = pocket.name.lower()
+        pocket_desc = (pocket.description or '').lower()
+        
+        if pocket_name in transfer_desc or transfer_desc in pocket_name:
+            confidence += 0.5
+        
+        if pocket_desc and (pocket_desc in transfer_desc or transfer_desc in pocket_desc):
+            confidence += 0.3
+        
+        # Check if amount fits pocket patterns (if target amount exists)
+        if pocket.target_amount:
+            amount = transfer_suggestion.get('amount', 0)
+            if amount <= pocket.target_amount:
+                confidence += 0.2
+        
+        return min(confidence, 1.0)
+    
+    def _get_pocket_suggestion_reason(self, transfer_suggestion: Dict[str, Any], 
+                                     pocket: 'SavingsPocket') -> str:
+        """Get reason for pocket assignment suggestion"""
+        reasons = []
+        
+        transfer_desc = transfer_suggestion['from_transaction'].get('description', '').lower()
+        pocket_name = pocket.name.lower()
+        
+        if pocket_name in transfer_desc:
+            reasons.append(f"Transfer description contains '{pocket.name}'")
+        
+        if pocket.target_amount:
+            amount = transfer_suggestion.get('amount', 0)
+            if amount <= pocket.target_amount:
+                reasons.append(f"Amount fits within target of {pocket.target_amount}")
+        
+        if not reasons:
+            reasons.append("Similar to other transfers to this pocket")
+        
+        return "; ".join(reasons)
+    
+    def assign_transfer_to_pocket(self, transfer_id: str, pocket_id: str, 
+                                 allocation_amount: float = None) -> Dict[str, Any]:
+        """Assign a transfer to a savings pocket"""
+        try:
+            from app.db.models import Transfer, SavingsPocket, TransferAllocation
+            
+            # Get transfer
+            transfer = self.db.query(Transfer).filter(
+                Transfer.id == transfer_id,
+                Transfer.user_id == self.user_id
+            ).first()
+            
+            if not transfer:
+                raise ValueError("Transfer not found")
+            
+            # Get pocket
+            pocket = self.db.query(SavingsPocket).filter(
+                SavingsPocket.id == pocket_id,
+                SavingsPocket.user_id == self.user_id
+            ).first()
+            
+            if not pocket:
+                raise ValueError("Savings pocket not found")
+            
+            # Create allocation
+            allocation = TransferAllocation(
+                user_id=self.user_id,
+                transfer_id=transfer_id,
+                allocated_pocket_id=pocket_id,
+                allocated_amount=allocation_amount or transfer.amount,
+                allocation_type="manual",
+                description=f"Allocated to {pocket.name}",
+                auto_confirmed=False,
+                confidence_score=0.8
+            )
+            
+            self.db.add(allocation)
+            
+            # Update pocket balance
+            pocket.current_amount += allocation.allocated_amount
+            
+            self.db.commit()
+            
+            return {
+                "allocation_id": str(allocation.id),
+                "message": f"Transfer allocated to {pocket.name}",
+                "allocated_amount": float(allocation.allocated_amount),
+                "new_pocket_balance": float(pocket.current_amount)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error assigning transfer to pocket: {e}")
+            self.db.rollback()
+            raise
+    
+    def _get_heuristic_suggestions(self, limit: int) -> List[Dict[str, Any]]:
+        """Get transfer suggestions using the old heuristic method as fallback - Only for TRANSFER category transactions"""
+        try:
+            from app.db.models import Category, CategoryType
             cutoff_date = date.today() - timedelta(days=30)
             
-            # Get non-transfer transactions from last 30 days
+            # Get transfer categories for this user
+            transfer_categories = self.db.query(Category).filter(
+                Category.user_id == self.user_id,
+                Category.category_type == CategoryType.TRANSFER
+            ).all()
+            
+            if not transfer_categories:
+                logger.info("No transfer categories found - creating default 'Account Transfers' category")
+                # Create default Account Transfers category
+                transfer_category = Category(
+                    user_id=self.user_id,
+                    name="Account Transfers",
+                    category_type=CategoryType.TRANSFER,
+                    allow_auto_learning=True
+                )
+                self.db.add(transfer_category)
+                self.db.commit()
+                self.db.refresh(transfer_category)
+                transfer_categories = [transfer_category]
+            
+            transfer_category_ids = [cat.id for cat in transfer_categories]
+            
+            # Get non-transfer transactions from last 30 days that are categorized as transfers
             transactions = self.db.query(Transaction).filter(
                 Transaction.user_id == self.user_id,
                 Transaction.date >= cutoff_date,
                 Transaction.account_id.isnot(None),
-                Transaction.is_transfer == False
+                Transaction.is_transfer == False,
+                Transaction.category_id.in_(transfer_category_ids)
             ).order_by(Transaction.date.desc()).limit(200).all()
             
             suggestions = []
             processed_pairs = set()
             
-            logger.info(f"Found {len(transactions)} transactions to analyze for transfers")
+            logger.info(f"Found {len(transactions)} TRANSFER category transactions to analyze for heuristic transfers")
             
             for i, tx1 in enumerate(transactions):
                 if len(suggestions) >= limit:
@@ -106,20 +412,36 @@ class TransferService:
                                 'confidence': confidence,
                                 'amount': float(abs(from_tx.amount)),
                                 'date_difference': abs((tx1.date - tx2.date).days),
-                                'suggested_reason': self._get_suggestion_reason(tx1, tx2, confidence)
+                                'suggested_reason': self._get_suggestion_reason(tx1, tx2, confidence),
+                                'matched_pattern': 'heuristic'
                             })
                     
                     if len(suggestions) >= limit:
                         break
             
-            # Sort by confidence
-            suggestions.sort(key=lambda x: x['confidence'], reverse=True)
-            logger.info(f"Generated {len(suggestions)} transfer suggestions")
             return suggestions
             
         except Exception as e:
-            logger.error(f"Error in get_transfer_suggestions: {e}")
+            logger.error(f"Error in heuristic suggestions: {e}")
             return []
+    
+    def _deduplicate_suggestions(self, suggestions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate suggestions"""
+        seen = set()
+        unique = []
+        
+        for suggestion in suggestions:
+            # Create a unique key for this suggestion
+            key = (
+                suggestion['from_transaction']['id'],
+                suggestion['to_transaction']['id']
+            )
+            
+            if key not in seen:
+                seen.add(key)
+                unique.append(suggestion)
+        
+        return unique
     
     def detect_potential_transfers_enhanced(self) -> Dict[str, Any]:
         """Enhanced transfer detection"""
@@ -392,8 +714,8 @@ class TransferService:
             self.db.rollback()
             raise e
     
-    def create_manual_transfer(self, from_transaction_id: str, to_transaction_id: str) -> Transfer:
-        """Create manual transfer between two transactions"""
+    def create_manual_transfer(self, from_transaction_id: str, to_transaction_id: str, learn_pattern: bool = True) -> Transfer:
+        """Create manual transfer between two transactions and optionally learn pattern"""
         try:
             from_tx = self.db.query(Transaction).filter(
                 Transaction.id == from_transaction_id,
@@ -418,7 +740,18 @@ class TransferService:
             if from_tx.amount > 0 and to_tx.amount < 0:
                 from_tx, to_tx = to_tx, from_tx
             
-            return self._create_transfer_from_transactions(from_tx, to_tx)
+            # Create the transfer
+            transfer = self._create_transfer_from_transactions(from_tx, to_tx)
+            
+            # Learn pattern from this manual transfer if requested
+            if learn_pattern:
+                try:
+                    pattern = self.learning_service.learn_from_manual_transfer(transfer)
+                    logger.info(f"Learned pattern from manual transfer: {pattern.pattern_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to learn pattern from transfer: {e}")
+            
+            return transfer
             
         except Exception as e:
             logger.error(f"Error creating manual transfer: {e}")
@@ -470,6 +803,64 @@ class TransferService:
         except Exception as e:
             logger.error(f"Error getting transfers: {e}")
             return []
+    
+    def get_transfer_patterns(self) -> List[Dict[str, Any]]:
+        """Get all transfer patterns for the user"""
+        try:
+            patterns = self.learning_service.get_transfer_patterns()
+            
+            pattern_list = []
+            for pattern in patterns:
+                pattern_list.append({
+                    'id': str(pattern.id),
+                    'pattern_name': pattern.pattern_name,
+                    'from_account_pattern': pattern.from_account_pattern,
+                    'to_account_pattern': pattern.to_account_pattern,
+                    'description_pattern': pattern.description_pattern,
+                    'typical_amount': float(pattern.typical_amount) if pattern.typical_amount else None,
+                    'amount_tolerance': pattern.amount_tolerance,
+                    'max_days_between': pattern.max_days_between,
+                    'confidence_threshold': pattern.confidence_threshold,
+                    'auto_confirm': pattern.auto_confirm,
+                    'times_matched': pattern.times_matched,
+                    'last_matched': pattern.last_matched.isoformat() if pattern.last_matched else None,
+                    'is_active': pattern.is_active,
+                    'created_at': pattern.created_at.isoformat()
+                })
+            
+            return pattern_list
+            
+        except Exception as e:
+            logger.error(f"Error getting transfer patterns: {e}")
+            return []
+    
+    def update_transfer_pattern(self, pattern_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Update transfer pattern settings"""
+        try:
+            pattern = self.learning_service.update_pattern_settings(pattern_id, settings)
+            
+            return {
+                'id': str(pattern.id),
+                'pattern_name': pattern.pattern_name,
+                'auto_confirm': pattern.auto_confirm,
+                'confidence_threshold': pattern.confidence_threshold,
+                'amount_tolerance': pattern.amount_tolerance,
+                'max_days_between': pattern.max_days_between,
+                'is_active': pattern.is_active,
+                'updated_at': pattern.updated_at.isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error updating transfer pattern: {e}")
+            raise e
+    
+    def delete_transfer_pattern(self, pattern_id: str) -> bool:
+        """Delete transfer pattern"""
+        try:
+            return self.learning_service.delete_pattern(pattern_id)
+        except Exception as e:
+            logger.error(f"Error deleting transfer pattern: {e}")
+            return False
     
     # Legacy compatibility method
     def detect_potential_transfers(self, days_lookback: int = 7) -> Dict[str, Any]:

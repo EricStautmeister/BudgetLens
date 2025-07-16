@@ -88,6 +88,9 @@ async def create_category(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a new category"""
+    logger.info(f"🔍 CREATE CATEGORY DEBUG: Received request from user {current_user.id}")
+    logger.info(f"🔍 CREATE CATEGORY DEBUG: Category data: {category_in.dict()}")
+    
     # Check for duplicate name within the same type
     existing = db.query(Category).filter(
         Category.user_id == current_user.id,

@@ -27,17 +27,45 @@ import {
     DialogActions,
     Alert,
     Tooltip,
+    TextField,
+    InputAdornment,
+    IconButton,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { 
-    AccountBalance as AccountIcon, 
+import {
+    AccountBalance as AccountIcon,
     SwapHoriz,
     Assignment,
     FilterList,
+    Search,
+    Edit,
+    Clear,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useSnackbar } from 'notistack';
 import { apiClient } from '../services/api';
+import TransactionEditDialog from '../components/TransactionEditDialog';
+
+// Utility function to ensure we always have an array
+const ensureArray = (data: any): any[] => {
+    if (Array.isArray(data)) {
+        return data;
+    }
+    if (data === null || data === undefined) {
+        return [];
+    }
+    if (typeof data === 'object') {
+        // Check common array property names
+        if (Array.isArray(data.items)) return data.items;
+        if (Array.isArray(data.results)) return data.results;
+        if (Array.isArray(data.data)) return data.data;
+        if (Array.isArray(data.transactions)) return data.transactions;
+        if (Array.isArray(data.categories)) return data.categories;
+        if (Array.isArray(data.accounts)) return data.accounts;
+    }
+    console.warn('Could not convert to array:', data, typeof data);
+    return [];
+};
 
 export default function Transactions() {
     const queryClient = useQueryClient();
@@ -51,44 +79,68 @@ export default function Transactions() {
         account_id: '', // NEW: Account filter
         needs_review: '',
         exclude_transfers: false, // NEW: Exclude transfers option
+        search: '', // NEW: Search filter
     });
     const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
     const [assignAccountDialog, setAssignAccountDialog] = useState(false);
     const [selectedAccountForAssignment, setSelectedAccountForAssignment] = useState('');
+    const [editDialog, setEditDialog] = useState(false);
+    const [editingTransaction, setEditingTransaction] = useState<any>(null);
 
     const { data: transactions } = useQuery({
         queryKey: ['transactions', page, rowsPerPage, filters],
         queryFn: async () => {
-            const response = await apiClient.getTransactionsWithAccountFilter({
-                skip: page * rowsPerPage,
-                limit: rowsPerPage,
-                ...filters,
-            });
-            return response.data;
+            try {
+                const response = await apiClient.getTransactionsWithAccountFilter({
+                    skip: page * rowsPerPage,
+                    limit: rowsPerPage,
+                    ...filters,
+                });
+                console.log('Transactions API response:', response.data);
+                return ensureArray(response.data);
+            } catch (error) {
+                console.error('Error fetching transactions:', error);
+                return [];
+            }
         },
     });
 
     const { data: categories } = useQuery({
         queryKey: ['categories'],
         queryFn: async () => {
-            const response = await apiClient.getCategories();
-            return response.data;
+            try {
+                const response = await apiClient.getCategories();
+                return ensureArray(response.data);
+            } catch (error) {
+                console.error('Error fetching categories:', error);
+                return [];
+            }
         },
     });
 
     const { data: accounts } = useQuery({
         queryKey: ['accounts'],
         queryFn: async () => {
-            const response = await apiClient.getAccounts();
-            return response.data;
+            try {
+                const response = await apiClient.getAccounts();
+                return ensureArray(response.data);
+            } catch (error) {
+                console.error('Error fetching accounts:', error);
+                return [];
+            }
         },
     });
 
     const { data: unassignedTransactions } = useQuery({
         queryKey: ['unassignedTransactions'],
         queryFn: async () => {
-            const response = await apiClient.getUnassignedTransactions(50);
-            return response.data;
+            try {
+                const response = await apiClient.getUnassignedTransactions(50);
+                return ensureArray(response.data);
+            } catch (error) {
+                console.error('Error fetching unassigned transactions:', error);
+                return [];
+            }
         },
     });
 
@@ -100,8 +152,8 @@ export default function Transactions() {
             queryClient.invalidateQueries({ queryKey: ['transactions'] });
             queryClient.invalidateQueries({ queryKey: ['unassignedTransactions'] });
             queryClient.invalidateQueries({ queryKey: ['accounts'] });
-            enqueueSnackbar(`Assigned ${data.data.updated_count} transactions to ${data.data.account_name}`, { 
-                variant: 'success' 
+            enqueueSnackbar(`Assigned ${data.data.updated_count} transactions to ${data.data.account_name}`, {
+                variant: 'success'
             });
             setSelectedTransactions([]);
             setAssignAccountDialog(false);
@@ -136,18 +188,19 @@ export default function Transactions() {
     };
 
     const handleSelectTransaction = (transactionId: string) => {
-        setSelectedTransactions(prev => 
-            prev.includes(transactionId) 
+        setSelectedTransactions(prev =>
+            prev.includes(transactionId)
                 ? prev.filter(id => id !== transactionId)
                 : [...prev, transactionId]
         );
     };
 
     const handleSelectAll = () => {
-        if (selectedTransactions.length === transactions?.length) {
+        const transactionsList = ensureArray(transactions);
+        if (selectedTransactions.length === transactionsList.length) {
             setSelectedTransactions([]);
         } else {
-            setSelectedTransactions(transactions?.map((t: any) => t.id) || []);
+            setSelectedTransactions(transactionsList.map((t: any) => t.id) || []);
         }
     };
 
@@ -160,11 +213,25 @@ export default function Transactions() {
         }
     };
 
+    const handleEditTransaction = (transaction: any) => {
+        setEditingTransaction(transaction);
+        setEditDialog(true);
+    };
+
+    const handleCloseEditDialog = () => {
+        setEditDialog(false);
+        setEditingTransaction(null);
+    };
+
+    const clearSearch = () => {
+        setFilters({ ...filters, search: '' });
+    };
+
     const getAccountChip = (transaction: any) => {
         if (!transaction.account_name) {
             return <Chip label="Unassigned" color="warning" size="small" />;
         }
-        
+
         const colorMap: Record<string, any> = {
             checking: 'primary',
             savings: 'success',
@@ -172,10 +239,10 @@ export default function Transactions() {
             investment: 'info',
             loan: 'error',
         };
-        
+
         return (
-            <Chip 
-                label={transaction.account_name} 
+            <Chip
+                label={transaction.account_name}
                 color={colorMap[transaction.account_type] || 'default'}
                 size="small"
                 icon={<AccountIcon fontSize="small" />}
@@ -189,12 +256,25 @@ export default function Transactions() {
                 <Typography variant="h4">Transactions</Typography>
                 <Box display="flex" gap={2}>
                     {selectedTransactions.length > 0 && (
-                        <Button
-                            variant="outlined"
-                            startIcon={<Assignment />}
-                            onClick={() => setAssignAccountDialog(true)}>
-                            Assign Account ({selectedTransactions.length})
-                        </Button>
+                        <>
+                            <Button
+                                variant="outlined"
+                                startIcon={<Assignment />}
+                                onClick={() => setAssignAccountDialog(true)}>
+                                Assign Account ({selectedTransactions.length})
+                            </Button>
+                            {selectedTransactions.length === 1 && (
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<Edit />}
+                                    onClick={() => {
+                                        const transaction = transactions?.find((t: any) => t.id === selectedTransactions[0]);
+                                        if (transaction) handleEditTransaction(transaction);
+                                    }}>
+                                    Edit Transaction
+                                </Button>
+                            )}
+                        </>
                     )}
                     {unassignedTransactions && unassignedTransactions.length > 0 && (
                         <Button
@@ -225,6 +305,30 @@ export default function Transactions() {
                     <Typography variant="h6">Filters</Typography>
                 </Box>
                 <Grid container spacing={2}>
+                    <Grid item xs={12} md={3}>
+                        <TextField
+                            fullWidth
+                            size="small"
+                            label="Search transactions"
+                            value={filters.search}
+                            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <Search />
+                                    </InputAdornment>
+                                ),
+                                endAdornment: filters.search && (
+                                    <InputAdornment position="end">
+                                        <IconButton size="small" onClick={clearSearch}>
+                                            <Clear />
+                                        </IconButton>
+                                    </InputAdornment>
+                                )
+                            }}
+                            placeholder="Search descriptions, details, references..."
+                        />
+                    </Grid>
                     <Grid item xs={12} md={2}>
                         <DatePicker
                             label="Start Date"
@@ -249,7 +353,7 @@ export default function Transactions() {
                                 onChange={(e) => setFilters({ ...filters, account_id: e.target.value })}
                                 label="Account">
                                 <MenuItem value="">All Accounts</MenuItem>
-                                {accounts?.map((account: any) => (
+                                {ensureArray(accounts).map((account: any) => (
                                     <MenuItem key={account.id} value={account.id}>
                                         <Box display="flex" alignItems="center" gap={1}>
                                             <AccountIcon fontSize="small" />
@@ -268,7 +372,7 @@ export default function Transactions() {
                                 onChange={(e) => setFilters({ ...filters, category_id: e.target.value })}
                                 label="Category">
                                 <MenuItem value="">All Categories</MenuItem>
-                                {categories?.map((cat: any) => (
+                                {ensureArray(categories).map((cat: any) => (
                                     <MenuItem key={cat.id} value={cat.id}>
                                         {cat.name}
                                     </MenuItem>
@@ -331,7 +435,7 @@ export default function Transactions() {
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {transactions?.map((transaction: any) => (
+                        {ensureArray(transactions).map((transaction: any) => (
                             <TableRow key={transaction.id}>
                                 <TableCell padding="checkbox">
                                     <Checkbox
@@ -405,7 +509,7 @@ export default function Transactions() {
                             value={selectedAccountForAssignment}
                             onChange={(e) => setSelectedAccountForAssignment(e.target.value)}
                             label="Select Account">
-                            {accounts?.map((account: any) => (
+                            {ensureArray(accounts).map((account: any) => (
                                 <MenuItem key={account.id} value={account.id}>
                                     <Box display="flex" alignItems="center" gap={1}>
                                         <AccountIcon fontSize="small" />
@@ -418,14 +522,21 @@ export default function Transactions() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setAssignAccountDialog(false)}>Cancel</Button>
-                    <Button 
-                        onClick={handleBulkAssign} 
+                    <Button
+                        onClick={handleBulkAssign}
                         variant="contained"
                         disabled={!selectedAccountForAssignment || bulkAssignMutation.isPending}>
                         Assign {selectedTransactions.length} Transactions
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Transaction Edit Dialog */}
+            <TransactionEditDialog
+                open={editDialog}
+                onClose={handleCloseEditDialog}
+                transaction={editingTransaction}
+            />
         </Box>
     );
 }
